@@ -1,0 +1,25 @@
+application:
+  name: cmk-krypton-bridge
+  buildInfo:
+    version: 0.1.0
+
+logger:
+  level: debug
+  format: json
+
+grpcServer:
+  enabled: true
+  address: ":9092"
+
+kryptonClient:
+  mockMode: false
+  address: "ing.worker01.kms.shoot.gardener.cc-one.showroom.apeirora.eu:443"
+  secretRef:
+    type: tls
+
+orbital:
+  enabled: false
+  mustVerifySig: false
+
+keyHierarchy:
+  maxDepth: 4

@@ -33,3 +33,7 @@ go.work
 .buf_cache
 .go_cache
 .go_path
+bin/
+internal/gen/kms/
+*.out
+*.test

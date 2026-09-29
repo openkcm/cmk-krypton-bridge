@@ -1,0 +1,77 @@
+syntax = "proto3";
+package kms.api.krypton.rpc.v1;
+
+option go_package = "github.com/openkcm/cmk-krypton-bridge/internal/gen/kms/api/krypton/rpc/v1;rpcv1";
+
+service CmkKryptonBridgeService {
+  rpc EnsureKeyHierarchy(EnsureKeyHierarchyRequest)
+      returns (EnsureKeyHierarchyResponse);
+  rpc GetKey(GetKeyRequest)
+      returns (GetKeyResponse);
+  rpc ListKeys(ListKeysRequest)
+      returns (ListKeysResponse);
+  rpc Health(HealthRequest)
+      returns (HealthResponse);
+}
+
+enum KeyLevel {
+  KEY_LEVEL_UNSPECIFIED = 0;
+  KEY_LEVEL_L1          = 1;
+  KEY_LEVEL_L2          = 2;
+  KEY_LEVEL_L3          = 3;
+  KEY_LEVEL_L4          = 4;
+}
+
+enum KeyStatus {
+  KEY_STATUS_UNSPECIFIED = 0;
+  KEY_STATUS_ACTIVE      = 1;
+  KEY_STATUS_DISABLED    = 2;
+  KEY_STATUS_DELETED     = 3;
+}
+
+message KeyInfo {
+  string    id         = 1;
+  KeyLevel  level      = 2;
+  string    tenant_id  = 3;
+  string    service_id = 4;
+  string    parent_id  = 5;
+  KeyStatus status     = 6;
+  map<string, string> metadata = 7;
+}
+
+message EnsureKeyHierarchyRequest {
+  string   tenant_id    = 1;
+  string   service_id   = 2;
+  KeyLevel target_level = 3;
+  map<string, string> metadata = 4;
+}
+
+message EnsureKeyHierarchyResponse {
+  KeyInfo          requested_key = 1;
+  repeated KeyInfo created_keys  = 2;
+}
+
+message GetKeyRequest {
+  string key_id    = 1;
+  string tenant_id = 2;
+}
+
+message GetKeyResponse {
+  KeyInfo key = 1;
+}
+
+message ListKeysRequest {
+  string tenant_id = 1;
+}
+
+message ListKeysResponse {
+  repeated KeyInfo keys = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool   healthy        = 1;
+  string krypton_status = 2;
+  string version        = 3;
+}

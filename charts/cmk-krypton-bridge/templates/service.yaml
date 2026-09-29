@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cmk-krypton-bridge.fullname" . }}
+  labels:
+    {{- include "cmk-krypton-bridge.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "cmk-krypton-bridge.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+      protocol: TCP

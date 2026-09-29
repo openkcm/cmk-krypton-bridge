@@ -1,0 +1,9 @@
+# The image is packaging only — the Dockerfile compiles nothing, it copies an already-built
+# linux binary (see Dockerfile and the `krypton` / `docker` targets in the Makefile).
+#
+# So the build context is exactly one directory. Excluding everything and re-including dist/
+# is deliberate rather than an enumeration of unwanted paths: it means adding a large directory
+# to the repository later cannot silently start shipping it to the daemon, and the context
+# stays a few tens of megabytes instead of the whole tree plus vendor/ and web/ui/node_modules.
+*
+!dist/

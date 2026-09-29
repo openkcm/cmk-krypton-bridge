@@ -1,0 +1,26 @@
+application:
+  name: cmk-krypton-bridge
+  buildInfo:
+    version: 0.1.0
+
+logger:
+  level: info
+  format: json
+
+grpcServer:
+  enabled: true
+  address: ":9092"
+
+kryptonClient:
+  mockMode: true
+  address: "localhost:9090"
+  secretRef:
+    type: insecure
+
+orbital:
+  enabled: false
+  mustVerifySig: false
+
+keyHierarchy:
+  cacheTTL: 30s
+  maxDepth: 4

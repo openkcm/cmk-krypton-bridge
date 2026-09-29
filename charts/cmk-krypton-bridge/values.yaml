@@ -1,0 +1,41 @@
+replicaCount: 1
+
+image:
+  repository: openkcm/cmk-krypton-bridge
+  pullPolicy: IfNotPresent
+  tag: "0.1.0"
+
+service:
+  grpcPort: 9092
+  httpPort: 8080
+
+config:
+  grpcServer:
+    address: ":9092"
+  kryptonClient:
+    address: "krypton:9093"
+    mockMode: false
+    secretRef:
+      type: insecure
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 32Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10

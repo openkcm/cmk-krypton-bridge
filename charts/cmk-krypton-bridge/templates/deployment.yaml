@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cmk-krypton-bridge.fullname" . }}
+  labels:
+    {{- include "cmk-krypton-bridge.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cmk-krypton-bridge.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cmk-krypton-bridge.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: cmk-krypton-bridge
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.grpcPort }}
+              protocol: TCP
+            - name: http
+              containerPort: {{ .Values.service.httpPort }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: KRYPTON_PROXY_KRYPTONCLIENT_ADDRESS
+              value: {{ .Values.config.kryptonClient.address | quote }}
+            - name: KRYPTON_PROXY_GRPCSERVER_ADDRESS
+              value: {{ .Values.config.grpcServer.address | quote }}

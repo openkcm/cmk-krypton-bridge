@@ -106,8 +106,14 @@ func TestEnsureHierarchy_L4_FullChain(t *testing.T) {
 	if len(result.CreatedKeys) != 3 {
 		t.Errorf("expected 3 created keys (L2+L3+L4), got %d", len(result.CreatedKeys))
 	}
+	if len(result.EnsuredKeys) != 3 {
+		t.Errorf("expected 3 ensured keys (L2+L3+L4), got %d", len(result.EnsuredKeys))
+	}
 	if result.RequestedKey.Level != kryptonclient.LevelL4 {
 		t.Errorf("expected L4, got %d", result.RequestedKey.Level)
+	}
+	if result.RequestedKey.ProxyID != "tenant-xyz-invoicing-l4" {
+		t.Errorf("expected deterministic proxy ID, got %q", result.RequestedKey.ProxyID)
 	}
 }
 

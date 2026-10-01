@@ -23,3 +23,12 @@ orbital:
 
 keyHierarchy:
   maxDepth: 4
+
+database:
+  dsn: "postgres://user:pass@localhost:5432/cmk_krypton_bridge?sslmode=disable"
+
+worker:
+  concurrency: 3
+  pollInterval: 500ms
+  maxAttempts: 10
+  stuckTimeout: 5m

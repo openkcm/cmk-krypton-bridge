@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	rpcv1 "github.com/openkcm/cmk-krypton-bridge/internal/gen/kms/api/krypton/rpc/v1"
+	"github.com/openkcm/cmk-krypton-bridge/internal/jobstore"
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 	"github.com/openkcm/cmk-krypton-bridge/internal/orchestrator"
 )
@@ -20,14 +21,17 @@ type Handler struct {
 	rpcv1.UnimplementedCmkKryptonBridgeServiceServer
 	orch   *orchestrator.Orchestrator
 	client kryptonclient.Client
+	store  jobstore.JobStore
 	log    *zap.Logger
 }
 
 // NewHandler creates a new gRPC handler.
-func NewHandler(orch *orchestrator.Orchestrator, client kryptonclient.Client, log *zap.Logger) *Handler {
-	return &Handler{orch: orch, client: client, log: log}
+func NewHandler(orch *orchestrator.Orchestrator, client kryptonclient.Client, store jobstore.JobStore, log *zap.Logger) *Handler {
+	return &Handler{orch: orch, client: client, store: store, log: log}
 }
 
+// EnsureKeyHierarchy persists the request as a job and returns immediately with a job_id.
+// The background worker pool drives the request to completion asynchronously.
 func (h *Handler) EnsureKeyHierarchy(
 	ctx context.Context,
 	req *rpcv1.EnsureKeyHierarchyRequest,
@@ -36,25 +40,52 @@ func (h *Handler) EnsureKeyHierarchy(
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
-	result, err := h.orch.EnsureHierarchy(ctx, orchestrator.EnsureHierarchyRequest{
+	jobID, err := h.store.Enqueue(ctx, orchestrator.EnsureHierarchyRequest{
 		TenantID:  req.TenantId,
 		ServiceID: req.ServiceId,
 		Level:     kryptonclient.Level(req.TargetLevel),
 		Metadata:  req.Metadata,
 	})
 	if err != nil {
-		h.log.Error("EnsureHierarchy failed",
-			zap.Error(err),
-			zap.String("tenantID", req.TenantId))
-		return nil, status.Errorf(codes.Internal, "ensure hierarchy: %v", err)
+		h.log.Error("enqueue job failed", zap.Error(err), zap.String("tenantID", req.TenantId))
+		return nil, status.Errorf(codes.Internal, "enqueue job: %v", err)
 	}
 
-	resp := &rpcv1.EnsureKeyHierarchyResponse{
-		RequestedKey: keyToProto(result.RequestedKey),
+	h.log.Info("job enqueued", zap.String("jobID", jobID), zap.String("tenantID", req.TenantId))
+	return &rpcv1.EnsureKeyHierarchyResponse{
+		JobId:  jobID,
+		Status: rpcv1.JobStatus_JOB_STATUS_ACCEPTED,
+	}, nil
+}
+
+// GetJobStatus returns the current state of a key hierarchy job.
+func (h *Handler) GetJobStatus(
+	ctx context.Context,
+	req *rpcv1.GetJobStatusRequest,
+) (*rpcv1.GetJobStatusResponse, error) {
+	if req.JobId == "" {
+		return nil, status.Error(codes.InvalidArgument, "job_id is required")
 	}
-	for _, k := range result.CreatedKeys {
-		resp.CreatedKeys = append(resp.CreatedKeys, keyToProto(k))
+
+	job, err := h.store.GetJob(ctx, req.JobId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "job %q not found", req.JobId)
 	}
+
+	resp := &rpcv1.GetJobStatusResponse{
+		JobId:    job.ID,
+		Status:   jobStatusToProto(job.Status),
+		Error:    job.LastError,
+		Attempts: int32(job.Attempts),
+	}
+
+	if job.Status == jobstore.StatusDone && job.ResultKeyID != "" {
+		k, err := h.client.GetKey(ctx, job.ResultKeyID, job.TenantID)
+		if err == nil {
+			resp.ResultKey = keyToProto(k)
+		}
+	}
+
 	return resp, nil
 }
 
@@ -135,6 +166,23 @@ func keyStatusToProto(s kryptonclient.KeyStatus) rpcv1.KeyStatus {
 		return rpcv1.KeyStatus_KEY_STATUS_DELETED
 	default:
 		return rpcv1.KeyStatus_KEY_STATUS_UNSPECIFIED
+	}
+}
+
+func jobStatusToProto(s jobstore.Status) rpcv1.JobStatus {
+	switch s {
+	case jobstore.StatusPending:
+		return rpcv1.JobStatus_JOB_STATUS_ACCEPTED
+	case jobstore.StatusProcessing:
+		return rpcv1.JobStatus_JOB_STATUS_PROCESSING
+	case jobstore.StatusDone:
+		return rpcv1.JobStatus_JOB_STATUS_DONE
+	case jobstore.StatusRetrying:
+		return rpcv1.JobStatus_JOB_STATUS_RETRYING
+	case jobstore.StatusFailed:
+		return rpcv1.JobStatus_JOB_STATUS_FAILED
+	default:
+		return rpcv1.JobStatus_JOB_STATUS_UNSPECIFIED
 	}
 }
 

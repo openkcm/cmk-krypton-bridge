@@ -6,6 +6,8 @@ option go_package = "github.com/openkcm/cmk-krypton-bridge/internal/gen/kms/api/
 service CmkKryptonBridgeService {
   rpc EnsureKeyHierarchy(EnsureKeyHierarchyRequest)
       returns (EnsureKeyHierarchyResponse);
+  rpc GetJobStatus(GetJobStatusRequest)
+      returns (GetJobStatusResponse);
   rpc GetKey(GetKeyRequest)
       returns (GetKeyResponse);
   rpc ListKeys(ListKeysRequest)
@@ -29,6 +31,15 @@ enum KeyStatus {
   KEY_STATUS_DELETED     = 3;
 }
 
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_ACCEPTED    = 1;
+  JOB_STATUS_PROCESSING  = 2;
+  JOB_STATUS_DONE        = 3;
+  JOB_STATUS_RETRYING    = 4;
+  JOB_STATUS_FAILED      = 5;
+}
+
 message KeyInfo {
   string    id         = 1;
   KeyLevel  level      = 2;
@@ -47,8 +58,20 @@ message EnsureKeyHierarchyRequest {
 }
 
 message EnsureKeyHierarchyResponse {
-  KeyInfo          requested_key = 1;
-  repeated KeyInfo created_keys  = 2;
+  string    job_id = 1;
+  JobStatus status = 2;
+}
+
+message GetJobStatusRequest {
+  string job_id = 1;
+}
+
+message GetJobStatusResponse {
+  string    job_id     = 1;
+  JobStatus status     = 2;
+  KeyInfo   result_key = 3;
+  string    error      = 4;
+  int32     attempts   = 5;
 }
 
 message GetKeyRequest {

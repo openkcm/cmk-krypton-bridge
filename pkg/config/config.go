@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/openkcm/common-sdk/pkg/commoncfg"
 	"github.com/spf13/viper"
@@ -10,12 +11,14 @@ import (
 
 // Config is the root configuration for CmkKryptonBridge.
 type Config struct {
-	Application   commoncfg.Application  `yaml:"application"   mapstructure:"application"`
-	Logger        commoncfg.Logger       `yaml:"logger"        mapstructure:"logger"`
-	GRPCServer    commoncfg.GRPCServer   `yaml:"grpcServer"    mapstructure:"grpcServer"`
-	KryptonClient KryptonClientConfig    `yaml:"kryptonClient" mapstructure:"kryptonClient"`
-	Orbital       OrbitalConfig          `yaml:"orbital"       mapstructure:"orbital"`
-	KeyHierarchy  KeyHierarchyConfig     `yaml:"keyHierarchy"  mapstructure:"keyHierarchy"`
+	Application   commoncfg.Application `yaml:"application"   mapstructure:"application"`
+	Logger        commoncfg.Logger      `yaml:"logger"        mapstructure:"logger"`
+	GRPCServer    commoncfg.GRPCServer  `yaml:"grpcServer"    mapstructure:"grpcServer"`
+	KryptonClient KryptonClientConfig   `yaml:"kryptonClient" mapstructure:"kryptonClient"`
+	Orbital       OrbitalConfig         `yaml:"orbital"       mapstructure:"orbital"`
+	KeyHierarchy  KeyHierarchyConfig    `yaml:"keyHierarchy"  mapstructure:"keyHierarchy"`
+	Database      DatabaseConfig        `yaml:"database"      mapstructure:"database"`
+	Worker        WorkerConfig          `yaml:"worker"        mapstructure:"worker"`
 }
 
 // KryptonClientConfig configures the connection to the Krypton backend.
@@ -34,6 +37,19 @@ type OrbitalConfig struct {
 // KeyHierarchyConfig tunes key lifecycle behaviour.
 type KeyHierarchyConfig struct {
 	MaxDepth int `yaml:"maxDepth" mapstructure:"maxDepth"`
+}
+
+// DatabaseConfig holds the PostgreSQL connection string.
+type DatabaseConfig struct {
+	DSN string `yaml:"dsn" mapstructure:"dsn"`
+}
+
+// WorkerConfig controls the background polling worker pool.
+type WorkerConfig struct {
+	Concurrency  int           `yaml:"concurrency"  mapstructure:"concurrency"`
+	PollInterval time.Duration `yaml:"pollInterval" mapstructure:"pollInterval"`
+	MaxAttempts  int           `yaml:"maxAttempts"  mapstructure:"maxAttempts"`
+	StuckTimeout time.Duration `yaml:"stuckTimeout" mapstructure:"stuckTimeout"`
 }
 
 // Load reads configuration from file and environment variables.
@@ -55,6 +71,11 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetDefault("orbital.enabled", false)
 	v.SetDefault("orbital.mustVerifySig", false)
 	v.SetDefault("keyHierarchy.maxDepth", 4)
+	v.SetDefault("database.dsn", "")
+	v.SetDefault("worker.concurrency", 3)
+	v.SetDefault("worker.pollInterval", "500ms")
+	v.SetDefault("worker.maxAttempts", 10)
+	v.SetDefault("worker.stuckTimeout", "5m")
 
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)

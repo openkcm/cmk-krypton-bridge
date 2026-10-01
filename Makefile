@@ -1,7 +1,8 @@
 .PHONY: all build test test-integration lint proto docker helm-package run tidy buf-init \
         demo demo-mock \
         demo-health demo-ensure-l2 demo-ensure-l3 demo-ensure-l4 \
-        demo-idempotency demo-list-keys demo-new-tenant
+        demo-idempotency demo-list-keys demo-new-tenant \
+        db-up db-down db-migrate db-reset
 
 BINARY_PROXY  = bin/cmk-krypton-bridge
 BINARY_CLI    = bin/cmk2kryptonctl
@@ -53,6 +54,32 @@ lint:
 
 run:
 	GRPC_ENFORCE_ALPN_ENABLED=false go run ./cmd/proxy --config=config.yaml
+
+# ── database ──────────────────────────────────────────────────────────────────
+
+DB_DSN ?= postgres://user:pass@localhost:5432/cmk_krypton_bridge?sslmode=disable
+DB_CONTAINER = cmk-krypton-bridge-pg
+
+db-up:
+	docker run -d --name $(DB_CONTAINER) \
+	  -e POSTGRES_DB=cmk_krypton_bridge \
+	  -e POSTGRES_USER=user \
+	  -e POSTGRES_PASSWORD=pass \
+	  -p 5432:5432 \
+	  postgres:16-alpine
+	@echo "Postgres started — wait a few seconds before connecting."
+
+db-down:
+	docker stop $(DB_CONTAINER) && docker rm $(DB_CONTAINER)
+
+db-migrate:
+	@echo "Migrations run automatically on proxy startup (goose embedded)."
+	@echo "To run manually: DATABASE_DSN='$(DB_DSN)' ./bin/cmk-krypton-bridge --config=config.yaml"
+
+db-reset:
+	docker exec $(DB_CONTAINER) psql -U user -d cmk_krypton_bridge \
+	  -c "DROP TABLE IF EXISTS goose_db_version, key_hierarchy_jobs;"
+	@echo "Schema dropped — next proxy start will re-apply migrations."
 
 # ── demo: real Krypton on worker01 ────────────────────────────────────────────
 #

@@ -12,9 +12,10 @@ import (
 
 // Level-to-Krypton-kind mapping.
 // The running Krypton instance uses K0/K1/K2 as configured in its hierarchy:
-//   K0 = root key (no parent) → our L2 (tenant root)
-//   K1 = KEK (parent=K0)     → our L3 (service key)
-//   K2 = DEK (parent=K1)     → our L4
+//
+//	K0 = root key (no parent) → our L2 (tenant root)
+//	K1 = KEK (parent=K0)     → our L3 (service key)
+//	K2 = DEK (parent=K1)     → our L4
 const (
 	KindL2 = "K0" // tenant root (root kind, no parent)
 	KindL3 = "K1" // service key (KEK, parent=K0)
@@ -33,6 +34,7 @@ type EnsureHierarchyRequest struct {
 type EnsureHierarchyResult struct {
 	RequestedKey *kryptonclient.Key
 	CreatedKeys  []*kryptonclient.Key
+	EnsuredKeys  []*kryptonclient.Key
 }
 
 // Orchestrator manages the key hierarchy.
@@ -115,6 +117,8 @@ func (o *Orchestrator) ensureLevel(
 
 	existing, err := o.client.GetKey(ctx, keyID, req.TenantID)
 	if err == nil {
+		existing.ProxyID = keyID
+		result.EnsuredKeys = append(result.EnsuredKeys, existing)
 		o.log.Info("key already exists",
 			zap.String("keyID", keyID),
 			zap.Int("level", int(req.Level)))
@@ -147,6 +151,8 @@ func (o *Orchestrator) ensureLevel(
 		return nil, fmt.Errorf("creating key %q: %w", keyID, err)
 	}
 
+	newKey.ProxyID = keyID
+	result.EnsuredKeys = append(result.EnsuredKeys, newKey)
 	result.CreatedKeys = append(result.CreatedKeys, newKey)
 	return newKey, nil
 }

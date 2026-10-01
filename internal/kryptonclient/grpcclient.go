@@ -200,6 +200,19 @@ func (c *GRPCClient) EnsureTenant(ctx context.Context, tenantName string) (strin
 		Name: tenantName,
 	})
 	if err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			// Another pod created the same tenant concurrently — re-list to find it.
+			listResp, lerr := c.tenantStub.ListTenants(ctx, &adminpb.ListTenantsRequest{})
+			if lerr != nil {
+				return "", fmt.Errorf("krypton ListTenants after AlreadyExists: %w", lerr)
+			}
+			for _, t := range listResp.Tenants {
+				if t.Name == tenantName {
+					return t.Id, nil
+				}
+			}
+			return "", fmt.Errorf("krypton CreateTenant(%s): AlreadyExists but tenant not found in list", tenantName)
+		}
 		return "", fmt.Errorf("krypton CreateTenant(%s): %w", tenantName, err)
 	}
 	return createResp.Tenant.Id, nil

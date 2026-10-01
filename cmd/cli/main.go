@@ -22,7 +22,7 @@ func main() {
 		Short: "CLI for managing the CmkKryptonBridge",
 	}
 	root.PersistentFlags().StringVar(&proxyAddr, "addr", "localhost:9092", "CmkKryptonBridge gRPC address")
-	root.AddCommand(healthCmd(), listKeysCmd(), ensureHierarchyCmd())
+	root.AddCommand(healthCmd(), listKeysCmd(), ensureHierarchyCmd(), getJobStatusCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -85,7 +85,7 @@ func ensureHierarchyCmd() *cobra.Command {
 	var tenantID, serviceID, level string
 	cmd := &cobra.Command{
 		Use:   "ensure-hierarchy",
-		Short: "Ensure key hierarchy for a tenant/service",
+		Short: "Enqueue a key hierarchy job for a tenant/service",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if tenantID == "" {
 				return fmt.Errorf("--tenant-id is required")
@@ -120,6 +120,31 @@ func ensureHierarchyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tenantID, "tenant-id", "", "Tenant ID (required)")
 	cmd.Flags().StringVar(&serviceID, "service-id", "", "Service ID (required for L3/L4)")
 	cmd.Flags().StringVar(&level, "level", "L3", "Target key level: L2, L3, L4")
+	return cmd
+}
+
+func getJobStatusCmd() *cobra.Command {
+	var jobID string
+	cmd := &cobra.Command{
+		Use:   "get-job-status",
+		Short: "Poll the status of a key hierarchy job",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if jobID == "" {
+				return fmt.Errorf("--job-id is required")
+			}
+			client, conn, err := newClient()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.GetJobStatus(context.Background(), &rpcv1.GetJobStatusRequest{JobId: jobID})
+			if err != nil {
+				return err
+			}
+			return printProto(resp)
+		},
+	}
+	cmd.Flags().StringVar(&jobID, "job-id", "", "Job ID returned by ensure-hierarchy")
 	return cmd
 }
 

@@ -2,17 +2,23 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
+	"io/fs"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 
+	dbpkg "github.com/openkcm/cmk-krypton-bridge/db"
+	"github.com/openkcm/cmk-krypton-bridge/internal/jobstore"
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 	"github.com/openkcm/cmk-krypton-bridge/internal/orchestrator"
 	"github.com/openkcm/cmk-krypton-bridge/internal/server"
+	"github.com/openkcm/cmk-krypton-bridge/internal/worker"
 	"github.com/openkcm/cmk-krypton-bridge/pkg/config"
 	"github.com/openkcm/cmk-krypton-bridge/pkg/logger"
 )
@@ -48,7 +54,28 @@ func main() {
 	}
 
 	orch := orchestrator.NewWithOptions(kryptonClient, lg, skipL1Lookup)
-	handler := server.NewHandler(orch, kryptonClient, lg)
+
+	// Open PostgreSQL and run migrations.
+	if cfg.Database.DSN == "" {
+		lg.Fatal("database.dsn is required")
+	}
+	db, err := sql.Open("pgx", cfg.Database.DSN)
+	if err != nil {
+		lg.Fatal("opening database", zap.Error(err))
+	}
+	defer db.Close()
+
+	migFS, err := fs.Sub(dbpkg.MigrationsFS, "migrations")
+	if err != nil {
+		lg.Fatal("preparing migrations fs", zap.Error(err))
+	}
+	if err := jobstore.Migrate(context.Background(), db, migFS); err != nil {
+		lg.Fatal("running migrations", zap.Error(err))
+	}
+	lg.Info("database migrations applied")
+
+	store := jobstore.NewPostgresJobStore(db)
+	handler := server.NewHandler(orch, kryptonClient, store, lg)
 
 	grpcSrv, err := server.NewGRPCServer(handler, cfg.GRPCServer.Address, lg)
 	if err != nil {
@@ -57,6 +84,17 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Start background worker pool.
+	pool := worker.NewPool(
+		cfg.Worker.Concurrency,
+		store,
+		orch,
+		lg,
+		cfg.Worker.PollInterval,
+		cfg.Worker.StuckTimeout,
+	)
+	go pool.Start(ctx)
 
 	healthSrv := server.NewHealthHTTPServer(kryptonClient, lg)
 	go server.StartHealthServer(ctx, ":8080", healthSrv.Handler(), lg)

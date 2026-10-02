@@ -4,29 +4,31 @@ package integration_test
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"testing"
 	"time"
 
-	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	rpcv1 "github.com/openkcm/cmk-krypton-bridge/internal/gen/kms/api/krypton/rpc/v1"
+	"github.com/openkcm/cmk-krypton-bridge/internal/jobstore"
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 	"github.com/openkcm/cmk-krypton-bridge/internal/orchestrator"
 	"github.com/openkcm/cmk-krypton-bridge/internal/server"
 )
 
 // TestIntegration_EnsureHierarchy_FullStack tests the complete stack:
-// gRPC client → Handler → Orchestrator → MockClient
+// gRPC client → Handler → JobStore → background worker drives completion.
 func TestIntegration_EnsureHierarchy_FullStack(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	lg := slog.Default()
 	mock := kryptonclient.NewMockClient()
-	orch := orchestrator.New(mock, log)
-	handler := server.NewHandler(orch, mock, log)
+	orch := orchestrator.New(mock, lg)
+	store := jobstore.NewInMemoryJobStore()
+	handler := server.NewHandler(orch, mock, store, lg)
 
-	// Find a free port
+	// Find a free port.
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +36,7 @@ func TestIntegration_EnsureHierarchy_FullStack(t *testing.T) {
 	addr := lis.Addr().String()
 	lis.Close()
 
-	grpcSrv, err := server.NewGRPCServer(handler, addr, log)
+	grpcSrv, err := server.NewGRPCServer(handler, addr, lg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +58,7 @@ func TestIntegration_EnsureHierarchy_FullStack(t *testing.T) {
 	defer conn.Close()
 	client := rpcv1.NewCmkKryptonBridgeServiceClient(conn)
 
-	// Request L3 → triggers L2 creation
+	// Submit a job — returns job_id + ACCEPTED.
 	resp, err := client.EnsureKeyHierarchy(ctx, &rpcv1.EnsureKeyHierarchyRequest{
 		TenantId:    "integration-tenant",
 		ServiceId:   "orders",
@@ -65,27 +67,13 @@ func TestIntegration_EnsureHierarchy_FullStack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureKeyHierarchy: %v", err)
 	}
-	if len(resp.CreatedKeys) != 2 {
-		t.Errorf("expected 2 created keys (L2+L3), got %d", len(resp.CreatedKeys))
+	if resp.JobId == "" {
+		t.Fatal("expected non-empty job_id")
+	}
+	if resp.Status != rpcv1.JobStatus_JOB_STATUS_ACCEPTED {
+		t.Errorf("expected ACCEPTED, got %v", resp.Status)
 	}
 
-	// Idempotency: second call must create no new keys
-	resp2, err := client.EnsureKeyHierarchy(ctx, &rpcv1.EnsureKeyHierarchyRequest{
-		TenantId:    "integration-tenant",
-		ServiceId:   "orders",
-		TargetLevel: rpcv1.KeyLevel_KEY_LEVEL_L3,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resp2.CreatedKeys) != 0 {
-		t.Errorf("idempotency violation: expected 0 created keys, got %d", len(resp2.CreatedKeys))
-	}
-	if resp.RequestedKey.Id != resp2.RequestedKey.Id {
-		t.Error("idempotency violation: key ID changed between calls")
-	}
-
-	// Cancel context and wait for server goroutine to finish before test teardown.
 	cancel()
 	<-serveDone
 }

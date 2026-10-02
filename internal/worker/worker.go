@@ -2,10 +2,9 @@ package worker
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
-
-	"go.uber.org/zap"
 
 	"github.com/openkcm/cmk-krypton-bridge/internal/jobstore"
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
@@ -18,7 +17,7 @@ type Worker struct {
 	store        jobstore.JobStore
 	orch         *orchestrator.Orchestrator
 	registry     registryclient.Client
-	log          *zap.Logger
+	log          *slog.Logger
 	stuckTimeout time.Duration
 	region       string
 	ownerID      string
@@ -30,17 +29,17 @@ type Worker struct {
 func (w *Worker) processOne(ctx context.Context) {
 	job, err := w.store.ClaimNext(ctx)
 	if err != nil {
-		w.log.Error("worker: claim next job failed", zap.Error(err))
+		w.log.ErrorContext(ctx, "worker: claim next job failed", slog.String("error", err.Error()))
 		return
 	}
 	if job == nil {
 		return // queue empty
 	}
 
-	w.log.Info("worker: processing job",
-		zap.String("jobID", job.ID),
-		zap.String("tenantID", job.TenantID),
-		zap.Int("attempt", job.Attempts+1))
+	w.log.InfoContext(ctx, "worker: processing job",
+		slog.String("jobID", job.ID),
+		slog.String("tenantID", job.TenantID),
+		slog.Int("attempt", job.Attempts+1))
 
 	// Keep updated_at fresh so RecoverStuck won't reset this in-flight job.
 	hbCtx, hbCancel := context.WithCancel(ctx)
@@ -55,7 +54,7 @@ func (w *Worker) processOne(ctx context.Context) {
 				return
 			case <-ticker.C:
 				if hbErr := w.store.Heartbeat(hbCtx, job.ID); hbErr != nil {
-					w.log.Warn("worker: heartbeat failed", zap.String("jobID", job.ID), zap.Error(hbErr))
+					w.log.WarnContext(hbCtx, "worker: heartbeat failed", slog.String("jobID", job.ID), slog.String("error", hbErr.Error()))
 				}
 			}
 		}
@@ -68,18 +67,18 @@ func (w *Worker) processOne(ctx context.Context) {
 		Metadata:  job.Metadata,
 	})
 	if err != nil {
-		w.log.Warn("worker: EnsureHierarchy failed",
-			zap.String("jobID", job.ID),
-			zap.Error(err),
-			zap.Int("attempts", job.Attempts+1))
+		w.log.WarnContext(ctx, "worker: EnsureHierarchy failed",
+			slog.String("jobID", job.ID),
+			slog.String("error", err.Error()),
+			slog.Int("attempts", job.Attempts+1))
 
 		if job.Attempts+1 >= job.MaxAttempts {
 			if mfErr := w.store.MarkFailed(ctx, job.ID, err.Error()); mfErr != nil {
-				w.log.Error("worker: mark failed", zap.Error(mfErr))
+				w.log.ErrorContext(ctx, "worker: mark failed", slog.String("error", mfErr.Error()))
 			}
 		} else {
 			if mrErr := w.store.MarkRetry(ctx, job.ID, err.Error()); mrErr != nil {
-				w.log.Error("worker: mark retry", zap.Error(mrErr))
+				w.log.ErrorContext(ctx, "worker: mark retry", slog.String("error", mrErr.Error()))
 			}
 		}
 		return
@@ -91,12 +90,12 @@ func (w *Worker) processOne(ctx context.Context) {
 	}
 
 	if mdErr := w.store.MarkDone(ctx, job.ID, resultKeyID); mdErr != nil {
-		w.log.Error("worker: mark done", zap.Error(mdErr))
+		w.log.ErrorContext(ctx, "worker: mark done", slog.String("error", mdErr.Error()))
 	}
 
-	w.log.Info("worker: job done",
-		zap.String("jobID", job.ID),
-		zap.String("resultKeyID", resultKeyID))
+	w.log.InfoContext(ctx, "worker: job done",
+		slog.String("jobID", job.ID),
+		slog.String("resultKeyID", resultKeyID))
 
 	// Register tenant+system in CMK Registry after key creation.
 	// Non-fatal: registry failure is logged but does not affect the job result.
@@ -112,15 +111,15 @@ func (w *Worker) processOne(ctx context.Context) {
 			Role:       w.role,
 		}
 		if regErr := w.registry.EnsureSystem(ctx, regReq); regErr != nil {
-			w.log.Error("worker: registry EnsureSystem failed — key created but not registered",
-				zap.String("jobID", job.ID),
-				zap.String("tenantID", job.TenantID),
-				zap.String("serviceID", job.ServiceID),
-				zap.Error(regErr))
+			w.log.ErrorContext(ctx, "worker: registry EnsureSystem failed — key created but not registered",
+				slog.String("jobID", job.ID),
+				slog.String("tenantID", job.TenantID),
+				slog.String("serviceID", job.ServiceID),
+				slog.String("error", regErr.Error()))
 		} else {
-			w.log.Info("worker: registered in CMK Registry",
-				zap.String("tenantID", job.TenantID),
-				zap.String("serviceID", job.ServiceID))
+			w.log.InfoContext(ctx, "worker: registered in CMK Registry",
+				slog.String("tenantID", job.TenantID),
+				slog.String("serviceID", job.ServiceID))
 		}
 	}
 }
@@ -131,7 +130,7 @@ type Pool struct {
 	store        jobstore.JobStore
 	orch         *orchestrator.Orchestrator
 	registry     registryclient.Client
-	log          *zap.Logger
+	log          *slog.Logger
 	pollInterval time.Duration
 	stuckTimeout time.Duration
 	region       string
@@ -145,7 +144,7 @@ func NewPool(
 	store jobstore.JobStore,
 	orch *orchestrator.Orchestrator,
 	registry registryclient.Client,
-	log *zap.Logger,
+	log *slog.Logger,
 	pollInterval time.Duration,
 	stuckTimeout time.Duration,
 	region string,
@@ -181,7 +180,7 @@ func (p *Pool) Start(ctx context.Context) {
 				store:        p.store,
 				orch:         p.orch,
 				registry:     p.registry,
-				log:          p.log.With(zap.Int("workerID", id)),
+				log:          p.log.With(slog.Int("workerID", id)),
 				stuckTimeout: p.stuckTimeout,
 				region:       p.region,
 				ownerID:      p.ownerID,
@@ -214,9 +213,9 @@ func (p *Pool) Start(ctx context.Context) {
 			case <-ticker.C:
 				n, err := p.store.RecoverStuck(ctx, p.stuckTimeout)
 				if err != nil {
-					p.log.Error("worker: recover stuck jobs", zap.Error(err))
+					p.log.ErrorContext(ctx, "worker: recover stuck jobs", slog.String("error", err.Error()))
 				} else if n > 0 {
-					p.log.Info("worker: recovered stuck jobs", zap.Int("count", n))
+					p.log.InfoContext(ctx, "worker: recovered stuck jobs", slog.Int("count", n))
 				}
 			}
 		}

@@ -5,10 +5,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -43,16 +43,16 @@ type GRPCClient struct {
 	systemClient  systempb.ServiceClient
 	mappingClient mappingpb.ServiceClient
 	bearerToken   string
-	log           *zap.Logger
+	log           *slog.Logger
 }
 
 // NewGRPCClient dials the Registry with default options (system TLS, no auth).
-func NewGRPCClient(address string, log *zap.Logger) (*GRPCClient, error) {
+func NewGRPCClient(address string, log *slog.Logger) (*GRPCClient, error) {
 	return NewGRPCClientWithOptions(address, GRPCClientOptions{}, log)
 }
 
 // NewGRPCClientWithOptions dials the Registry with explicit TLS/auth options.
-func NewGRPCClientWithOptions(address string, opts GRPCClientOptions, log *zap.Logger) (*GRPCClient, error) {
+func NewGRPCClientWithOptions(address string, opts GRPCClientOptions, log *slog.Logger) (*GRPCClient, error) {
 	dialOpts, err := buildDialOptions(opts)
 	if err != nil {
 		return nil, fmt.Errorf("build registry dial options: %w", err)
@@ -164,7 +164,7 @@ func (c *GRPCClient) ensureTenant(ctx context.Context, req EnsureSystemRequest) 
 		return fmt.Errorf("registry RegisterTenant(%s): %w", req.TenantID, err)
 	}
 	if isAlreadyExists(err) {
-		c.log.Debug("registry: tenant already registered", zap.String("tenantID", req.TenantID))
+		c.log.DebugContext(ctx, "registry: tenant already registered", slog.String("tenantID", req.TenantID))
 	}
 	return nil
 }
@@ -181,7 +181,7 @@ func (c *GRPCClient) ensureSystem(ctx context.Context, req EnsureSystemRequest) 
 		return fmt.Errorf("registry RegisterSystem(%s): %w", req.ServiceID, err)
 	}
 	if isAlreadyExists(err) {
-		c.log.Debug("registry: system already registered", zap.String("serviceID", req.ServiceID))
+		c.log.DebugContext(ctx, "registry: system already registered", slog.String("serviceID", req.ServiceID))
 	}
 	return nil
 }
@@ -195,9 +195,9 @@ func (c *GRPCClient) ensureMapping(ctx context.Context, req EnsureSystemRequest)
 		return fmt.Errorf("registry MapSystemToTenant(%s→%s): %w", req.ServiceID, req.TenantID, err)
 	}
 	if isAlreadyExists(err) {
-		c.log.Debug("registry: mapping already exists",
-			zap.String("serviceID", req.ServiceID),
-			zap.String("tenantID", req.TenantID))
+		c.log.DebugContext(ctx, "registry: mapping already exists",
+			slog.String("serviceID", req.ServiceID),
+			slog.String("tenantID", req.TenantID))
 	}
 	return nil
 }

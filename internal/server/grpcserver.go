@@ -3,9 +3,9 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -22,11 +22,11 @@ type Handler struct {
 	orch   *orchestrator.Orchestrator
 	client kryptonclient.Client
 	store  jobstore.JobStore
-	log    *zap.Logger
+	log    *slog.Logger
 }
 
 // NewHandler creates a new gRPC handler.
-func NewHandler(orch *orchestrator.Orchestrator, client kryptonclient.Client, store jobstore.JobStore, log *zap.Logger) *Handler {
+func NewHandler(orch *orchestrator.Orchestrator, client kryptonclient.Client, store jobstore.JobStore, log *slog.Logger) *Handler {
 	return &Handler{orch: orch, client: client, store: store, log: log}
 }
 
@@ -47,11 +47,11 @@ func (h *Handler) EnsureKeyHierarchy(
 		Metadata:  req.Metadata,
 	})
 	if err != nil {
-		h.log.Error("enqueue job failed", zap.Error(err), zap.String("tenantID", req.TenantId))
+		h.log.ErrorContext(ctx, "enqueue job failed", slog.String("error", err.Error()), slog.String("tenantID", req.TenantId))
 		return nil, status.Errorf(codes.Internal, "enqueue job: %v", err)
 	}
 
-	h.log.Info("job enqueued", zap.String("jobID", jobID), zap.String("tenantID", req.TenantId))
+	h.log.InfoContext(ctx, "job enqueued", slog.String("jobID", jobID), slog.String("tenantID", req.TenantId))
 	return &rpcv1.EnsureKeyHierarchyResponse{
 		JobId:  jobID,
 		Status: rpcv1.JobStatus_JOB_STATUS_ACCEPTED,
@@ -190,11 +190,11 @@ func jobStatusToProto(s jobstore.Status) rpcv1.JobStatus {
 type GRPCServer struct {
 	srv *grpc.Server
 	lis net.Listener
-	log *zap.Logger
+	log *slog.Logger
 }
 
 // NewGRPCServer creates and registers the gRPC server.
-func NewGRPCServer(handler *Handler, address string, log *zap.Logger) (*GRPCServer, error) {
+func NewGRPCServer(handler *Handler, address string, log *slog.Logger) (*GRPCServer, error) {
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, err
@@ -208,9 +208,9 @@ func NewGRPCServer(handler *Handler, address string, log *zap.Logger) (*GRPCServ
 func (s *GRPCServer) Serve(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
-		s.log.Info("shutting down gRPC server")
+		s.log.InfoContext(ctx, "shutting down gRPC server")
 		s.srv.GracefulStop()
 	}()
-	s.log.Info("gRPC server listening", zap.String("address", s.lis.Addr().String()))
+	s.log.InfoContext(ctx, "gRPC server listening", slog.String("address", s.lis.Addr().String()))
 	return s.srv.Serve(s.lis)
 }

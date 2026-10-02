@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	"go.uber.org/zap"
+	"log/slog"
 
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 )
@@ -40,7 +39,7 @@ type EnsureHierarchyResult struct {
 // Orchestrator manages the key hierarchy.
 type Orchestrator struct {
 	client kryptonclient.Client
-	log    *zap.Logger
+	log    *slog.Logger
 	l1ID   string
 	// skipL1Lookup disables fetching the L1 key from the backend.
 	// Set true when the backend manages its own hardware root (real Krypton).
@@ -48,7 +47,7 @@ type Orchestrator struct {
 }
 
 // New creates a new Orchestrator.
-func New(client kryptonclient.Client, log *zap.Logger) *Orchestrator {
+func New(client kryptonclient.Client, log *slog.Logger) *Orchestrator {
 	return &Orchestrator{
 		client: client,
 		log:    log,
@@ -57,7 +56,7 @@ func New(client kryptonclient.Client, log *zap.Logger) *Orchestrator {
 }
 
 // NewWithOptions creates an Orchestrator with additional options.
-func NewWithOptions(client kryptonclient.Client, log *zap.Logger, skipL1Lookup bool) *Orchestrator {
+func NewWithOptions(client kryptonclient.Client, log *slog.Logger, skipL1Lookup bool) *Orchestrator {
 	return &Orchestrator{
 		client:       client,
 		log:          log,
@@ -88,9 +87,9 @@ func (o *Orchestrator) EnsureHierarchy(
 		return nil, fmt.Errorf("resolving tenant %q: %w", req.TenantID, err)
 	}
 	if tenantUUID != req.TenantID {
-		o.log.Info("resolved tenant name to UUID",
-			zap.String("tenantName", req.TenantID),
-			zap.String("tenantUUID", tenantUUID))
+		o.log.InfoContext(ctx, "resolved tenant name to UUID",
+			slog.String("tenantName", req.TenantID),
+			slog.String("tenantUUID", tenantUUID))
 	}
 
 	// Work with UUID internally.
@@ -119,9 +118,9 @@ func (o *Orchestrator) ensureLevel(
 	if err == nil {
 		existing.ProxyID = keyID
 		result.EnsuredKeys = append(result.EnsuredKeys, existing)
-		o.log.Info("key already exists",
-			zap.String("keyID", keyID),
-			zap.Int("level", int(req.Level)))
+		o.log.InfoContext(ctx, "key already exists",
+			slog.String("keyID", keyID),
+			slog.Int("level", int(req.Level)))
 		return existing, nil
 	}
 	if !errors.Is(err, kryptonclient.ErrKeyNotFound) {
@@ -133,10 +132,10 @@ func (o *Orchestrator) ensureLevel(
 		return nil, fmt.Errorf("ensuring parent for level %d: %w", req.Level, err)
 	}
 
-	o.log.Info("creating key",
-		zap.String("keyID", keyID),
-		zap.Int("level", int(req.Level)),
-		zap.String("parentID", parentKey.ID))
+	o.log.InfoContext(ctx, "creating key",
+		slog.String("keyID", keyID),
+		slog.Int("level", int(req.Level)),
+		slog.String("parentID", parentKey.ID))
 
 	newKey, err := o.client.EnsureKey(ctx, kryptonclient.EnsureKeyRequest{
 		ID:        keyID,

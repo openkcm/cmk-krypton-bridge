@@ -1,23 +1,23 @@
 package logger
 
 import (
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"log/slog"
+	"os"
 )
 
-// New creates a zap.Logger for the given level.
-// development=true gives a human-readable console logger; false gives JSON production logger.
-func New(level string, development bool) (*zap.Logger, error) {
-	if development {
-		return zap.NewDevelopment()
-	}
-	lvl := zap.InfoLevel
+// New creates an slog.Logger for the given level.
+// development=true gives a human-readable text logger; false gives JSON production logger.
+func New(level string, development bool) (*slog.Logger, error) {
+	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(level)); err != nil {
-		lvl = zap.InfoLevel
+		lvl = slog.LevelInfo
 	}
-	cfg := zap.NewProductionConfig()
-	cfg.Level = zap.NewAtomicLevelAt(lvl)
-	cfg.EncoderConfig.TimeKey = "time"
-	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	return cfg.Build()
+	opts := &slog.HandlerOptions{Level: lvl}
+	var handler slog.Handler
+	if development {
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stderr, opts)
+	}
+	return slog.New(handler), nil
 }

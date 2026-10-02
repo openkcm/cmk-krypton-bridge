@@ -2,9 +2,9 @@ package server_test
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
-	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -19,8 +19,8 @@ func newHandler(t *testing.T) (*server.Handler, *jobstore.InMemoryJobStore, *kry
 	t.Helper()
 	store := jobstore.NewInMemoryJobStore()
 	mock := kryptonclient.NewMockClient()
-	orch := orchestrator.NewWithOptions(mock, zaptest.NewLogger(t), true)
-	h := server.NewHandler(orch, mock, store, zaptest.NewLogger(t))
+	orch := orchestrator.NewWithOptions(mock, slog.Default(), true)
+	h := server.NewHandler(orch, mock, store, slog.Default())
 	return h, store, mock
 }
 
@@ -100,8 +100,8 @@ func TestGetJobStatus_Done_WithResultKey(t *testing.T) {
 		TenantID: "tenant-a",
 		Level:    kryptonclient.LevelL2,
 	})
-	store.ClaimNext(context.Background())                    //nolint
-	store.MarkDone(context.Background(), id, key.ID)        //nolint
+	store.ClaimNext(context.Background())             //nolint
+	store.MarkDone(context.Background(), id, key.ID) //nolint
 
 	resp, err := h.GetJobStatus(context.Background(), &rpcv1.GetJobStatusRequest{JobId: id})
 	if err != nil {

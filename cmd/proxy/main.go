@@ -12,7 +12,6 @@ import (
 	"syscall"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"go.uber.org/zap"
 
 	dbpkg "github.com/openkcm/cmk-krypton-bridge/db"
 	eventprocessor "github.com/openkcm/cmk-krypton-bridge/internal/event-processor"
@@ -40,7 +39,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("creating logger: %v", err)
 	}
-	defer lg.Sync() //nolint:errcheck
 
 	var kryptonClient kryptonclient.Client
 	skipL1Lookup := false
@@ -48,10 +46,10 @@ func main() {
 		lg.Info("using mock Krypton client (POC mode)")
 		kryptonClient = kryptonclient.NewMockClient()
 	} else {
-		lg.Info("connecting to Krypton", zap.String("address", cfg.KryptonClient.Address))
+		lg.Info("connecting to Krypton", slog.String("address", cfg.KryptonClient.Address))
 		kryptonClient, err = kryptonclient.NewGRPCClient(cfg.KryptonClient.GRPCClient)
 		if err != nil {
-			lg.Fatal("failed to create Krypton gRPC client", zap.Error(err))
+			log.Fatalf("failed to create Krypton gRPC client: %v", err)
 		}
 		skipL1Lookup = true
 	}
@@ -65,20 +63,20 @@ func main() {
 		store = jobstore.NewInMemoryJobStore()
 	} else {
 		if cfg.Database.DSN == "" {
-			lg.Fatal("database.dsn is required")
+			log.Fatal("database.dsn is required")
 		}
 		db, err := sql.Open("pgx", cfg.Database.DSN)
 		if err != nil {
-			lg.Fatal("opening database", zap.Error(err))
+			log.Fatalf("opening database: %v", err)
 		}
 		defer db.Close()
 
 		migFS, err := fs.Sub(dbpkg.MigrationsFS, "migrations")
 		if err != nil {
-			lg.Fatal("preparing migrations fs", zap.Error(err))
+			log.Fatalf("preparing migrations fs: %v", err)
 		}
 		if err := jobstore.Migrate(context.Background(), db, migFS); err != nil {
-			lg.Fatal("running migrations", zap.Error(err))
+			log.Fatalf("running migrations: %v", err)
 		}
 		lg.Info("database migrations applied")
 		store = jobstore.NewPostgresJobStore(db)
@@ -88,7 +86,7 @@ func main() {
 	// Build Registry client.
 	var regClient registryclient.Client
 	if cfg.Registry.Enabled {
-		lg.Info("connecting to CMK Registry", zap.String("address", cfg.Registry.Address))
+		lg.Info("connecting to CMK Registry", slog.String("address", cfg.Registry.Address))
 		regOpts := registryclient.GRPCClientOptions{
 			Insecure:    cfg.Registry.Insecure,
 			BearerToken: cfg.Registry.BearerToken,
@@ -98,7 +96,7 @@ func main() {
 		}
 		regClient, err = registryclient.NewGRPCClientWithOptions(cfg.Registry.Address, regOpts, lg)
 		if err != nil {
-			lg.Fatal("failed to create Registry gRPC client", zap.Error(err))
+			log.Fatalf("failed to create Registry gRPC client: %v", err)
 		}
 	} else {
 		lg.Info("CMK Registry disabled — using noop client")
@@ -107,7 +105,7 @@ func main() {
 
 	grpcSrv, err := server.NewGRPCServer(handler, cfg.GRPCServer.Address, lg)
 	if err != nil {
-		lg.Fatal("failed to create gRPC server", zap.Error(err))
+		log.Fatalf("failed to create gRPC server: %v", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -135,7 +133,7 @@ func main() {
 		reconciler := eventprocessor.NewKryptonReconciler(slog.Default())
 		go func() {
 			if err := reconciler.Start(ctx, cfg.Orbital); err != nil {
-				lg.Error("orbital: KryptonReconciler stopped", zap.Error(err))
+				lg.Error("orbital: KryptonReconciler stopped", slog.String("error", err.Error()))
 			}
 		}()
 	}
@@ -143,10 +141,10 @@ func main() {
 	healthSrv := server.NewHealthHTTPServer(kryptonClient, lg)
 	go server.StartHealthServer(ctx, ":8080", healthSrv.Handler(), lg)
 
-	lg.Info("CmkKryptonBridge starting", zap.String("version", cfg.Application.BuildInfo.Version))
+	lg.Info("CmkKryptonBridge starting", slog.String("version", cfg.Application.BuildInfo.Version))
 
 	if err := grpcSrv.Serve(ctx); err != nil {
-		lg.Error("gRPC server stopped", zap.Error(err))
+		lg.Error("gRPC server stopped", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 

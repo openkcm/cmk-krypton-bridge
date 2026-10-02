@@ -3,11 +3,10 @@ package worker_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"go.uber.org/zap/zaptest"
 
 	"github.com/openkcm/cmk-krypton-bridge/internal/jobstore"
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
@@ -18,9 +17,9 @@ import (
 
 // fakeOrch wraps MockClient but lets tests inject errors.
 type fakeOrch struct {
-	mock    *kryptonclient.MockClient
-	failN   int32 // fail this many times before succeeding
-	calls   atomic.Int32
+	mock  *kryptonclient.MockClient
+	failN int32 // fail this many times before succeeding
+	calls atomic.Int32
 }
 
 func newFakeOrch(failN int) *fakeOrch {
@@ -29,7 +28,7 @@ func newFakeOrch(failN int) *fakeOrch {
 
 func (f *fakeOrch) orchestrator(t *testing.T) *orchestrator.Orchestrator {
 	t.Helper()
-	return orchestrator.NewWithOptions(f.wrappedClient(), zaptest.NewLogger(t), true)
+	return orchestrator.NewWithOptions(f.wrappedClient(), slog.Default(), true)
 }
 
 // wrappedClient returns a kryptonclient.Client that fails the first failN EnsureKey calls.
@@ -79,7 +78,7 @@ func TestPool_HappyPath(t *testing.T) {
 		Level:    kryptonclient.LevelL2,
 	})
 
-	pool := worker.NewPool(1, store, orch, reg, zaptest.NewLogger(t), 10*time.Millisecond, 5*time.Minute, "eu-central", "", "", "")
+	pool := worker.NewPool(1, store, orch, reg, slog.Default(), 10*time.Millisecond, 5*time.Minute, "eu-central", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
@@ -104,7 +103,7 @@ func TestPool_RetryThenSucceed(t *testing.T) {
 		Level:    kryptonclient.LevelL2,
 	})
 
-	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, zaptest.NewLogger(t), 10*time.Millisecond, 5*time.Minute, "test-region", "", "", "")
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 10*time.Millisecond, 5*time.Minute, "test-region", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
@@ -145,7 +144,7 @@ func TestPool_ExceedsMaxAttempts_ReachesFailed(t *testing.T) {
 	}
 	store.SetMaxAttempts(id, 3)
 
-	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, zaptest.NewLogger(t), 5*time.Millisecond, 5*time.Minute, "test-region", "", "", "")
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 5*time.Millisecond, 5*time.Minute, "test-region", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
@@ -162,7 +161,7 @@ func TestPool_Heartbeat_PreventsRecovery(t *testing.T) {
 	// Orchestrator that blocks until told to proceed.
 	proceed := make(chan struct{})
 	blockingOrch := &blockingOrchestrator{proceed: proceed, mock: kryptonclient.NewMockClient()}
-	orch := orchestrator.NewWithOptions(blockingOrch, zaptest.NewLogger(t), true)
+	orch := orchestrator.NewWithOptions(blockingOrch, slog.Default(), true)
 
 	id, _ := store.Enqueue(context.Background(), orchestrator.EnsureHierarchyRequest{
 		TenantID: "tenant-d",
@@ -170,7 +169,7 @@ func TestPool_Heartbeat_PreventsRecovery(t *testing.T) {
 	})
 
 	stuckTimeout := 200 * time.Millisecond
-	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, zaptest.NewLogger(t), 10*time.Millisecond, stuckTimeout, "test-region", "", "", "")
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 10*time.Millisecond, stuckTimeout, "test-region", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	go pool.Start(ctx)

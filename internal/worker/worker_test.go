@@ -12,6 +12,7 @@ import (
 	"github.com/openkcm/cmk-krypton-bridge/internal/jobstore"
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 	"github.com/openkcm/cmk-krypton-bridge/internal/orchestrator"
+	"github.com/openkcm/cmk-krypton-bridge/internal/registryclient"
 	"github.com/openkcm/cmk-krypton-bridge/internal/worker"
 )
 
@@ -71,19 +72,25 @@ func TestPool_HappyPath(t *testing.T) {
 	store := jobstore.NewInMemoryJobStoreNoDelay()
 	fo := newFakeOrch(0) // no failures
 	orch := fo.orchestrator(t)
+	reg := registryclient.NewMockClient()
 
 	id, _ := store.Enqueue(context.Background(), orchestrator.EnsureHierarchyRequest{
 		TenantID: "tenant-a",
 		Level:    kryptonclient.LevelL2,
 	})
 
-	pool := worker.NewPool(1, store, orch, zaptest.NewLogger(t), 10*time.Millisecond, 5*time.Minute)
+	pool := worker.NewPool(1, store, orch, reg, zaptest.NewLogger(t), 10*time.Millisecond, 5*time.Minute, "eu-central", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
 
 	if !waitForStatus(t, store, id, jobstore.StatusDone, 2*time.Second) {
 		t.Fatalf("job did not reach done within timeout")
+	}
+
+	// Registry must have been called after success.
+	if !reg.TenantRegistered("tenant-a") {
+		t.Error("expected tenant-a to be registered in registry after job done")
 	}
 }
 
@@ -97,7 +104,7 @@ func TestPool_RetryThenSucceed(t *testing.T) {
 		Level:    kryptonclient.LevelL2,
 	})
 
-	pool := worker.NewPool(1, store, orch, zaptest.NewLogger(t), 10*time.Millisecond, 5*time.Minute)
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, zaptest.NewLogger(t), 10*time.Millisecond, 5*time.Minute, "test-region", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
@@ -138,7 +145,7 @@ func TestPool_ExceedsMaxAttempts_ReachesFailed(t *testing.T) {
 	}
 	store.SetMaxAttempts(id, 3)
 
-	pool := worker.NewPool(1, store, orch, zaptest.NewLogger(t), 5*time.Millisecond, 5*time.Minute)
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, zaptest.NewLogger(t), 5*time.Millisecond, 5*time.Minute, "test-region", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
@@ -163,7 +170,7 @@ func TestPool_Heartbeat_PreventsRecovery(t *testing.T) {
 	})
 
 	stuckTimeout := 200 * time.Millisecond
-	pool := worker.NewPool(1, store, orch, zaptest.NewLogger(t), 10*time.Millisecond, stuckTimeout)
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, zaptest.NewLogger(t), 10*time.Millisecond, stuckTimeout, "test-region", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	go pool.Start(ctx)

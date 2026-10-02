@@ -1,6 +1,6 @@
 module github.com/openkcm/cmk-krypton-bridge
 
-go 1.27
+go 1.27.1
 
 require (
 	github.com/google/uuid v1.6.0
@@ -15,6 +15,8 @@ require (
 )
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2 // indirect
+	github.com/Azure/go-amqp v1.7.0 // indirect
 	github.com/Dynatrace/OneAgent-SDK-for-Go v1.1.0 // indirect
 	github.com/XSAM/otelsql v0.44.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -35,6 +37,8 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/oliveagle/jsonpath v0.1.4 // indirect
+	github.com/openkcm/api-sdk v0.22.0 // indirect
+	github.com/openkcm/orbital v0.6.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect

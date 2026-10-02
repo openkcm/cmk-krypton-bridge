@@ -10,14 +10,20 @@ import (
 	"github.com/openkcm/cmk-krypton-bridge/internal/jobstore"
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 	"github.com/openkcm/cmk-krypton-bridge/internal/orchestrator"
+	"github.com/openkcm/cmk-krypton-bridge/internal/registryclient"
 )
 
 // Worker polls the job store and drives each job to completion via the orchestrator.
 type Worker struct {
 	store        jobstore.JobStore
 	orch         *orchestrator.Orchestrator
+	registry     registryclient.Client
 	log          *zap.Logger
 	stuckTimeout time.Duration
+	region       string
+	ownerID      string
+	ownerType    string
+	role         string
 }
 
 // processOne claims and processes one job. No-op if the queue is empty.
@@ -83,13 +89,7 @@ func (w *Worker) processOne(ctx context.Context) {
 	if result.RequestedKey != nil {
 		resultKeyID = result.RequestedKey.ID
 	}
-	if err := w.store.RecordManagedKeys(ctx, job.ID, result.EnsuredKeys); err != nil {
-		w.log.Error("worker: record managed keys failed", zap.String("jobID", job.ID), zap.Error(err))
-		if mrErr := w.store.MarkRetry(ctx, job.ID, err.Error()); mrErr != nil {
-			w.log.Error("worker: mark retry after mapping failure", zap.Error(mrErr))
-		}
-		return
-	}
+
 	if mdErr := w.store.MarkDone(ctx, job.ID, resultKeyID); mdErr != nil {
 		w.log.Error("worker: mark done", zap.Error(mdErr))
 	}
@@ -97,6 +97,32 @@ func (w *Worker) processOne(ctx context.Context) {
 	w.log.Info("worker: job done",
 		zap.String("jobID", job.ID),
 		zap.String("resultKeyID", resultKeyID))
+
+	// Register tenant+system in CMK Registry after key creation.
+	// Non-fatal: registry failure is logged but does not affect the job result.
+	if resultKeyID != "" {
+		regReq := registryclient.EnsureSystemRequest{
+			TenantID:   job.TenantID,
+			TenantName: job.TenantID,
+			ServiceID:  job.ServiceID,
+			L2KeyID:    resultKeyID,
+			Region:     w.region,
+			OwnerID:    w.ownerID,
+			OwnerType:  w.ownerType,
+			Role:       w.role,
+		}
+		if regErr := w.registry.EnsureSystem(ctx, regReq); regErr != nil {
+			w.log.Error("worker: registry EnsureSystem failed — key created but not registered",
+				zap.String("jobID", job.ID),
+				zap.String("tenantID", job.TenantID),
+				zap.String("serviceID", job.ServiceID),
+				zap.Error(regErr))
+		} else {
+			w.log.Info("worker: registered in CMK Registry",
+				zap.String("tenantID", job.TenantID),
+				zap.String("serviceID", job.ServiceID))
+		}
+	}
 }
 
 // Pool manages a fixed number of concurrent workers plus a stuck-job recovery routine.
@@ -104,27 +130,41 @@ type Pool struct {
 	workers      int
 	store        jobstore.JobStore
 	orch         *orchestrator.Orchestrator
+	registry     registryclient.Client
 	log          *zap.Logger
 	pollInterval time.Duration
 	stuckTimeout time.Duration
+	region       string
+	ownerID      string
+	ownerType    string
+	role         string
 }
 
-// NewPool creates a Pool with the given concurrency settings.
 func NewPool(
 	workers int,
 	store jobstore.JobStore,
 	orch *orchestrator.Orchestrator,
+	registry registryclient.Client,
 	log *zap.Logger,
 	pollInterval time.Duration,
 	stuckTimeout time.Duration,
+	region string,
+	ownerID string,
+	ownerType string,
+	role string,
 ) *Pool {
 	return &Pool{
 		workers:      workers,
 		store:        store,
 		orch:         orch,
+		registry:     registry,
 		log:          log,
 		pollInterval: pollInterval,
 		stuckTimeout: stuckTimeout,
+		region:       region,
+		ownerID:      ownerID,
+		ownerType:    ownerType,
+		role:         role,
 	}
 }
 
@@ -133,12 +173,21 @@ func NewPool(
 func (p *Pool) Start(ctx context.Context) {
 	var wg sync.WaitGroup
 
-	// Launch worker goroutines.
 	for i := range p.workers {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			w := &Worker{store: p.store, orch: p.orch, log: p.log.With(zap.Int("workerID", id)), stuckTimeout: p.stuckTimeout}
+			w := &Worker{
+				store:        p.store,
+				orch:         p.orch,
+				registry:     p.registry,
+				log:          p.log.With(zap.Int("workerID", id)),
+				stuckTimeout: p.stuckTimeout,
+				region:       p.region,
+				ownerID:      p.ownerID,
+				ownerType:    p.ownerType,
+				role:         p.role,
+			}
 			ticker := time.NewTicker(p.pollInterval)
 			defer ticker.Stop()
 			for {

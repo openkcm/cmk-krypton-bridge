@@ -1,0 +1,45 @@
+application:
+  name: cmk-krypton-bridge
+  buildInfo:
+    version: 0.1.0
+
+logger:
+  level: info
+  format: json
+
+grpcServer:
+  enabled: true
+  address: ":9092"
+
+kryptonClient:
+  mockMode: true
+  address: "localhost:9090"
+  secretRef:
+    type: insecure
+
+orbital:
+  enabled: true
+  amqp:
+    url: "amqp://guest:guest@localhost:5672/"
+    target: "/queues/krypton-bridge.replies"
+    source: "/queues/krypton-bridge.requests"
+    auth:
+      type: anonymous
+
+keyHierarchy:
+  cacheTTL: 30s
+  maxDepth: 4
+
+database:
+  dsn: "postgres://user:pass@localhost:5432/cmk_krypton_bridge?sslmode=disable"
+
+worker:
+  concurrency: 3
+  pollInterval: 500ms
+  maxAttempts: 10
+  stuckTimeout: 5m
+
+registry:
+  enabled: false
+  address: "localhost:9093"
+  region: "eu-central"

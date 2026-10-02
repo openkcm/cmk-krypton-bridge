@@ -3,8 +3,8 @@ package eventprocessor
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/openkcm/orbital"
@@ -15,10 +15,10 @@ import (
 // KeyJobHandler handles KEY_ENABLE, KEY_DISABLE, KEY_DELETE orbital tasks.
 // Mirrors CMK's KeyJobHandler — POC: no-op, completes immediately.
 type KeyJobHandler struct {
-	lg *zap.Logger
+	lg *slog.Logger
 }
 
-func NewKeyJobHandler(lg *zap.Logger) *KeyJobHandler {
+func NewKeyJobHandler(lg *slog.Logger) *KeyJobHandler {
 	return &KeyJobHandler{lg: lg}
 }
 
@@ -27,22 +27,22 @@ func (h *KeyJobHandler) Handle(ctx context.Context, req orbital.HandlerRequest, 
 	if ka == nil {
 		return
 	}
-	h.lg.Info("orbital: key action (mock)",
-		zap.String("taskID", req.TaskID.String()),
-		zap.String("taskType", req.TaskType),
-		zap.String("keyID", ka.GetKeyId()),
-		zap.String("tenantID", ka.GetTenantId()),
-		zap.String("cmkRegion", ka.GetCmkRegion()))
+	h.lg.InfoContext(ctx, "orbital: key action (mock)",
+		slog.String("taskID", req.TaskID.String()),
+		slog.String("taskType", req.TaskType),
+		slog.String("keyID", ka.GetKeyId()),
+		slog.String("tenantID", ka.GetTenantId()),
+		slog.String("cmkRegion", ka.GetCmkRegion()))
 	resp.Complete()
 }
 
 // KeyDetachJobHandler handles KEY_DETACH orbital tasks.
 // Mirrors CMK's KeyDetachJobHandler — POC: logs and completes immediately.
 type KeyDetachJobHandler struct {
-	lg *zap.Logger
+	lg *slog.Logger
 }
 
-func NewKeyDetachJobHandler(lg *zap.Logger) *KeyDetachJobHandler {
+func NewKeyDetachJobHandler(lg *slog.Logger) *KeyDetachJobHandler {
 	return &KeyDetachJobHandler{lg: lg}
 }
 
@@ -51,10 +51,10 @@ func (h *KeyDetachJobHandler) Handle(ctx context.Context, req orbital.HandlerReq
 	if ka == nil {
 		return
 	}
-	h.lg.Info("orbital: KEY_DETACH (mock)",
-		zap.String("taskID", req.TaskID.String()),
-		zap.String("keyID", ka.GetKeyId()),
-		zap.String("tenantID", ka.GetTenantId()))
+	h.lg.InfoContext(ctx, "orbital: KEY_DETACH (mock)",
+		slog.String("taskID", req.TaskID.String()),
+		slog.String("keyID", ka.GetKeyId()),
+		slog.String("tenantID", ka.GetTenantId()))
 	resp.Complete()
 }
 
@@ -62,18 +62,18 @@ func (h *KeyDetachJobHandler) Handle(ctx context.Context, req orbital.HandlerReq
 
 func unmarshalKeyActionProto(
 	ctx context.Context,
-	lg *zap.Logger,
+	lg *slog.Logger,
 	req orbital.HandlerRequest,
 	resp *orbital.HandlerResponse,
 ) *taskv1.KeyAction {
 	var data taskv1.Data
 	if err := proto.Unmarshal(req.TaskData, &data); err != nil {
-		setErrorStateAndFail(ctx, lg, resp, err, "invalid task data")
+		setErrorStateAndFail(ctx, resp, err, "invalid task data")
 		return nil
 	}
 	ka := data.GetKeyAction()
 	if ka == nil {
-		setErrorStateAndFail(ctx, lg, resp,
+		setErrorStateAndFail(ctx, resp,
 			fmt.Errorf("no KeyAction in task type %s", req.TaskType),
 			"missing payload")
 		return nil

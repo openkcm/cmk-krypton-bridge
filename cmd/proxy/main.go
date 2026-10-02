@@ -6,6 +6,7 @@ import (
 	"flag"
 	"io/fs"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -131,7 +132,7 @@ func main() {
 	// Start orbital AMQP operator if enabled.
 	// Mirrors CMK's TenantOperator.RunOperator — KryptonReconciler owns the full lifecycle.
 	if cfg.Orbital.Enabled {
-		reconciler := eventprocessor.NewKryptonReconciler(lg)
+		reconciler := eventprocessor.NewKryptonReconciler(slog.Default())
 		go func() {
 			if err := reconciler.Start(ctx, cfg.Orbital); err != nil {
 				lg.Error("orbital: KryptonReconciler stopped", zap.Error(err))

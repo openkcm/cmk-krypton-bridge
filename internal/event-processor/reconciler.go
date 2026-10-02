@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	"go.uber.org/zap"
+	"log/slog"
 
 	"github.com/openkcm/orbital"
 	orbitalamqp "github.com/openkcm/orbital/client/amqp"
@@ -24,13 +23,13 @@ var (
 // it receives orbital Tasks from CMK and (in production) calls Krypton.
 // Naming follows CMK conventions as closely as possible.
 type KryptonReconciler struct {
-	lg            *zap.Logger
+	lg            *slog.Logger
 	jobHandlerMap map[JobType]orbital.HandlerFunc
 }
 
 // NewKryptonReconciler creates a KryptonReconciler and wires up all job handlers.
 // Mirrors CMK's NewCryptoReconciler structure.
-func NewKryptonReconciler(lg *zap.Logger) *KryptonReconciler {
+func NewKryptonReconciler(lg *slog.Logger) *KryptonReconciler {
 	r := &KryptonReconciler{lg: lg}
 
 	keyHandler := NewKeyJobHandler(lg)
@@ -79,15 +78,15 @@ func (r *KryptonReconciler) Start(ctx context.Context, cfg config.OrbitalConfig)
 		return err
 	}
 
-	r.lg.Info("orbital: KryptonReconciler running",
-		zap.String("url", cfg.AMQP.URL),
-		zap.String("source", cfg.AMQP.Source),
-		zap.String("target", cfg.AMQP.Target))
+	r.lg.InfoContext(ctx, "orbital: KryptonReconciler running",
+		slog.String("url", cfg.AMQP.URL),
+		slog.String("source", cfg.AMQP.Source),
+		slog.String("target", cfg.AMQP.Target))
 
 	go op.ListenAndRespond(ctx)
 
 	<-ctx.Done()
-	r.lg.Info("orbital: KryptonReconciler stopped")
+	r.lg.InfoContext(ctx, "orbital: KryptonReconciler stopped")
 	return nil
 }
 

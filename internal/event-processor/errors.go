@@ -3,9 +3,8 @@ package eventprocessor
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
-
-	"go.uber.org/zap"
 
 	"github.com/openkcm/orbital"
 )
@@ -18,10 +17,10 @@ var (
 )
 
 // setWorkingState mirrors CMK's setWorkingState.
-func setWorkingState(ctx context.Context, lg *zap.Logger, resp *orbital.HandlerResponse, err error, state string) {
+func setWorkingState(ctx context.Context, resp *orbital.HandlerResponse, err error, state string) {
 	ws, getErr := resp.WorkingState()
 	if getErr != nil || ws == nil {
-		lg.Error("orbital: failed to get working state", zap.Error(getErr))
+		slog.ErrorContext(ctx, "orbital: failed to get working state", slog.String("error", getErr.Error()))
 		return
 	}
 	ws.Set("state", state)
@@ -29,15 +28,15 @@ func setWorkingState(ctx context.Context, lg *zap.Logger, resp *orbital.HandlerR
 }
 
 // setErrorStateAndFail mirrors CMK's setErrorStateAndFail.
-func setErrorStateAndFail(ctx context.Context, lg *zap.Logger, resp *orbital.HandlerResponse, err error, state string) {
-	lg.Error("orbital: task failed, ending processing", zap.Error(err), zap.String("state", state))
-	setWorkingState(ctx, lg, resp, err, state)
+func setErrorStateAndFail(ctx context.Context, resp *orbital.HandlerResponse, err error, state string) {
+	slog.ErrorContext(ctx, "orbital: task failed, ending processing", slog.String("error", err.Error()), slog.String("state", state))
+	setWorkingState(ctx, resp, err, state)
 	resp.Fail(err.Error())
 }
 
 // setErrorStateAndContinue mirrors CMK's setErrorStateAndContinue.
-func setErrorStateAndContinue(ctx context.Context, lg *zap.Logger, resp *orbital.HandlerResponse, err error, state string) {
-	lg.Error("orbital: task failed, will retry", zap.Error(err), zap.String("state", state))
-	setWorkingState(ctx, lg, resp, err, state)
+func setErrorStateAndContinue(ctx context.Context, resp *orbital.HandlerResponse, err error, state string) {
+	slog.ErrorContext(ctx, "orbital: task failed, will retry", slog.String("error", err.Error()), slog.String("state", state))
+	setWorkingState(ctx, resp, err, state)
 	resp.ContinueAndWaitFor(reconcileAfterError)
 }

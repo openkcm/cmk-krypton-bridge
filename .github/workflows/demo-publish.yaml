@@ -25,6 +25,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Buf
+        uses: bufbuild/buf-setup-action@v1.2.1
+
+      - name: Generate protobuf code
+        run: buf generate
+
       - name: Set release tag
         id: release
         shell: bash

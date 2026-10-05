@@ -14,7 +14,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/openkcm/cmk-krypton-bridge-demo
+  IMAGE_NAME: ghcr.io/openkcm/cmk-krypton-bridge/images/cmk-krypton-bridge
   CHART_REPOSITORY: ghcr.io/openkcm/charts
   CHART_NAME: cmkkryptonbridge
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -22,7 +23,7 @@ func main() {
 		Short: "CLI for managing the CmkKryptonBridge",
 	}
 	root.PersistentFlags().StringVar(&proxyAddr, "addr", "localhost:9092", "CmkKryptonBridge gRPC address")
-	root.AddCommand(healthCmd(), listKeysCmd(), ensureHierarchyCmd())
+	root.AddCommand(healthCmd(), listKeysCmd(), ensureHierarchyCmd(), getJobStatusCmd(), watchJobCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -85,7 +86,7 @@ func ensureHierarchyCmd() *cobra.Command {
 	var tenantID, serviceID, level string
 	cmd := &cobra.Command{
 		Use:   "ensure-hierarchy",
-		Short: "Ensure key hierarchy for a tenant/service",
+		Short: "Enqueue a key hierarchy job for a tenant/service",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if tenantID == "" {
 				return fmt.Errorf("--tenant-id is required")
@@ -120,6 +121,83 @@ func ensureHierarchyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tenantID, "tenant-id", "", "Tenant ID (required)")
 	cmd.Flags().StringVar(&serviceID, "service-id", "", "Service ID (required for L3/L4)")
 	cmd.Flags().StringVar(&level, "level", "L3", "Target key level: L2, L3, L4")
+	return cmd
+}
+
+func getJobStatusCmd() *cobra.Command {
+	var jobID string
+	cmd := &cobra.Command{
+		Use:   "get-job-status",
+		Short: "Poll the status of a key hierarchy job",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if jobID == "" {
+				return fmt.Errorf("--job-id is required")
+			}
+			client, conn, err := newClient()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+			resp, err := client.GetJobStatus(context.Background(), &rpcv1.GetJobStatusRequest{JobId: jobID})
+			if err != nil {
+				return err
+			}
+			return printProto(resp)
+		},
+	}
+	cmd.Flags().StringVar(&jobID, "job-id", "", "Job ID returned by ensure-hierarchy")
+	return cmd
+}
+
+func watchJobCmd() *cobra.Command {
+	var jobID string
+	var intervalSec int
+	var timeoutSec int
+	cmd := &cobra.Command{
+		Use:   "watch-job",
+		Short: "Poll a job until it reaches DONE or FAILED",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if jobID == "" {
+				return fmt.Errorf("--job-id is required")
+			}
+			client, conn, err := newClient()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
+			interval := time.Duration(intervalSec) * time.Second
+
+			for {
+				resp, err := client.GetJobStatus(context.Background(), &rpcv1.GetJobStatusRequest{JobId: jobID})
+				if err != nil {
+					return err
+				}
+
+				fmt.Printf("[%s] status: %s  attempts: %d\n",
+					time.Now().Format("15:04:05"), resp.Status, resp.Attempts)
+
+				switch resp.Status {
+				case rpcv1.JobStatus_JOB_STATUS_DONE:
+					fmt.Println()
+					return printProto(resp)
+				case rpcv1.JobStatus_JOB_STATUS_FAILED:
+					fmt.Println()
+					printProto(resp) //nolint:errcheck
+					return fmt.Errorf("job failed: %s", resp.Error)
+				}
+
+				if time.Now().After(deadline) {
+					return fmt.Errorf("timeout after %ds — last status: %s", timeoutSec, resp.Status)
+				}
+				time.Sleep(interval)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&jobID, "job-id", "", "Job ID to watch")
+	cmd.Flags().IntVar(&intervalSec, "interval", 2, "Poll interval in seconds")
+	cmd.Flags().IntVar(&timeoutSec, "timeout", 60, "Timeout in seconds")
 	return cmd
 }
 

@@ -68,6 +68,9 @@ L4  → {tenantID}-{serviceID}-l4
 cmd/
   proxy/          daemon entry point
   cli/            cmk2kryptonctl entry point
+  demos/          manual integration/demo tools
+    krypton-test/ direct Krypton gRPC smoke test
+    orbital-demo/ Orbital/AMQP integration demo
 internal/
   kryptonclient/  Client interface, in-memory MockClient, gRPC stub
   orchestrator/   EnsureHierarchy logic + unit tests
@@ -116,6 +119,9 @@ protoc --go_out=internal/gen --go_opt=paths=source_relative \
 
 # 3. build
 make build
+
+# Optional: build demo tools separately
+make demo-build
 
 # 4. run (mock mode — no real Krypton needed)
 ./bin/cmk-krypton-bridge --config=config.yaml

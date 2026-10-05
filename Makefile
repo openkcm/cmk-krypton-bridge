@@ -1,13 +1,18 @@
-.PHONY: all build test test-integration lint proto docker helm-package run tidy buf-init \
-        demo demo-mock \
+.PHONY: all build demo-build test test-integration lint proto docker helm-package run tidy buf-init \
+        demo demo-mock demo-async demo-async-mock \
         demo-health demo-ensure-l2 demo-ensure-l3 demo-ensure-l4 \
-        demo-idempotency demo-list-keys demo-new-tenant
+        demo-idempotency demo-list-keys demo-new-tenant \
+        demo-async-enqueue demo-async-watch demo-async-registry \
+        demo-orbital demo-orbital-mock demo-orbital-portforward \
+        db-up db-down db-migrate db-reset
 
-BINARY_PROXY  = bin/cmk-krypton-bridge
-BINARY_CLI    = bin/cmk2kryptonctl
+BINARY_PROXY        = bin/cmk-krypton-bridge
+BINARY_CLI          = bin/cmk2kryptonctl
+BINARY_KRYPTON_TEST = bin/krypton-test
+BINARY_ORBITAL_DEMO = bin/orbital-demo
 PROTO_DIR     = proto
 GEN_DIR       = internal/gen
-IMAGE_TAG     = openkcm/cmk-krypton-bridge:latest
+IMAGE_TAG     = ghcr.io/openkcm/images/cmk-krypton-bridge:latest
 PROXY_ADDR    = localhost:9092
 
 # Tenant + service for demo (override on CLI: make demo TENANT=myco SERVICE=billing)
@@ -32,8 +37,12 @@ proto:
 	buf generate
 
 build:
-	go build -o $(BINARY_PROXY) ./cmd/proxy
-	go build -o $(BINARY_CLI)   ./cmd/cli
+	go build -o $(BINARY_PROXY)        ./cmd/proxy
+	go build -o $(BINARY_CLI)          ./cmd/cli
+
+demo-build: build
+	go build -o $(BINARY_KRYPTON_TEST) ./cmd/demos/krypton-test
+	go build -o $(BINARY_ORBITAL_DEMO) ./cmd/demos/orbital-demo
 
 tidy:
 	go mod tidy
@@ -53,6 +62,32 @@ lint:
 
 run:
 	GRPC_ENFORCE_ALPN_ENABLED=false go run ./cmd/proxy --config=config.yaml
+
+# ── database ──────────────────────────────────────────────────────────────────
+
+DB_DSN ?= postgres://user:pass@localhost:5432/cmk_krypton_bridge?sslmode=disable
+DB_CONTAINER = cmk-krypton-bridge-pg
+
+db-up:
+	docker run -d --name $(DB_CONTAINER) \
+	  -e POSTGRES_DB=cmk_krypton_bridge \
+	  -e POSTGRES_USER=user \
+	  -e POSTGRES_PASSWORD=pass \
+	  -p 5432:5432 \
+	  postgres:16-alpine
+	@echo "Postgres started — wait a few seconds before connecting."
+
+db-down:
+	docker stop $(DB_CONTAINER) && docker rm $(DB_CONTAINER)
+
+db-migrate:
+	@echo "Migrations run automatically on proxy startup (goose embedded)."
+	@echo "To run manually: DATABASE_DSN='$(DB_DSN)' ./bin/cmk-krypton-bridge --config=config.yaml"
+
+db-reset:
+	docker exec $(DB_CONTAINER) psql -U user -d cmk_krypton_bridge \
+	  -c "DROP TABLE IF EXISTS goose_db_version, key_hierarchy_jobs;"
+	@echo "Schema dropped — next proxy start will re-apply migrations."
 
 # ── demo: real Krypton on worker01 ────────────────────────────────────────────
 #
@@ -101,7 +136,7 @@ demo-mock: build
 	@echo "╚══════════════════════════════════════════════════════════╝"
 	@echo ""
 	@echo "▶ Starting proxy (mock mode)..."
-	@$(BINARY_PROXY) --config=config.yaml.mock 2>&1 \
+	@$(BINARY_PROXY) --config=config.mock.yaml 2>&1 \
 	  | grep -v "^$$" & echo $$! > /tmp/cmk-krypton-bridge.pid
 	@sleep 0.8
 	@echo ""
@@ -181,7 +216,188 @@ demo-new-tenant:
 	$(CLI) ensure-hierarchy --tenant-id=$(TENANT2) --service-id=$(SERVICE) --level=L3
 	@echo "└───────────────────────────────────────────────────────────────"
 
-# ── docker / helm ─────────────────────────────────────────────────────────────
+# ── demo: async flow with Registry integration ────────────────────────────────
+#
+#   make demo-async                          — full async demo (real Krypton + Registry)
+#   make demo-async-mock                     — async demo in mock mode (no external deps)
+#
+# Shows: enqueue → job_id returned immediately → poll until DONE → Registry registered.
+
+demo-async: build
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║       CmkKryptonBridge — Async + Registry Integration Demo       ║"
+	@echo "║  Shows: enqueue → ACCEPTED → polling → DONE → Registry sync      ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "▶ Starting proxy (real Krypton + Registry)..."
+	@GRPC_ENFORCE_ALPN_ENABLED=false $(BINARY_PROXY) --config=config.yaml 2>&1 \
+	  | grep -v "^$$" & echo $$! > /tmp/cmk-krypton-bridge.pid
+	@sleep 1.5
+	@echo ""
+	@$(MAKE) --no-print-directory demo-async-enqueue TENANT=$(TENANT) SERVICE=$(SERVICE)
+	@echo ""
+	@$(MAKE) --no-print-directory demo-async-registry TENANT=$(TENANT) SERVICE=$(SERVICE)
+	@echo ""
+	@echo "▶ Stopping proxy..."
+	@kill $$(cat /tmp/cmk-krypton-bridge.pid) 2>/dev/null || true
+	@rm -f /tmp/cmk-krypton-bridge.pid
+	@echo ""
+	@echo "✓ Async demo complete."
+
+demo-async-mock: build
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║   CmkKryptonBridge — Async + Registry Demo  (mock mode)          ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "▶ Starting proxy (mock mode, Registry disabled)..."
+	@$(BINARY_PROXY) --config=config.mock.yaml 2>&1 \
+	  | grep -v "^$$" & echo $$! > /tmp/cmk-krypton-bridge.pid
+	@sleep 0.8
+	@echo ""
+	@$(MAKE) --no-print-directory demo-async-enqueue TENANT=$(TENANT) SERVICE=$(SERVICE)
+	@echo ""
+	@echo "▶ Stopping proxy..."
+	@kill $$(cat /tmp/cmk-krypton-bridge.pid) 2>/dev/null || true
+	@rm -f /tmp/cmk-krypton-bridge.pid
+	@echo ""
+	@echo "✓ Async demo complete (mock mode)."
+
+demo-async-enqueue:
+	@echo "┌─ [1/3] Enqueue Job ───────────────────────────────────────────────"
+	@echo "│  Caller gets job_id immediately — Krypton call happens async."
+	@echo "│  tenant=$(TENANT)  service=$(SERVICE)  level=L3"
+	@echo "│"
+	@JOB_ID=$$($(CLI) ensure-hierarchy --tenant-id=$(TENANT) --service-id=$(SERVICE) --level=L3 \
+	  | grep '"job_id"' | sed 's/.*"job_id": *"\([^"]*\)".*/\1/'); \
+	echo "│  job_id: $$JOB_ID"; \
+	echo "│"; \
+	echo "│  Status while worker processes..."; \
+	echo "└───────────────────────────────────────────────────────────────────"; \
+	echo ""; \
+	echo "┌─ [2/3] Watch Job Until Done ──────────────────────────────────────"; \
+	echo "│  Polling every 2s — worker drives job to completion with retry."; \
+	echo "│"; \
+	$(CLI) watch-job --job-id=$$JOB_ID --interval=2 --timeout=60; \
+	echo "└───────────────────────────────────────────────────────────────────"
+
+demo-async-registry:
+	@echo "┌─ [3/3] Verify Registry Sync ──────────────────────────────────────"
+	@echo "│  After job DONE, worker registered tenant+system in CMK Registry."
+	@echo "│  tenant=$(TENANT)  service=$(SERVICE)"
+	@echo "│"
+	@echo "│  (Registry list-systems call would show the registered entry here)"
+	@echo "│  → In production: check registry.$(TENANT) via cmk-registry-ctl"
+	@echo "└───────────────────────────────────────────────────────────────────"
+
+# ── demo: orbital full-flow (mock mode — no external deps) ───────────────────
+#
+#   make demo-orbital-mock
+#
+# Shows the complete flow:
+#   CMK Backend (orbital-demo) → orbital :9094
+#   Bridge orbital handler     → jobstore.Enqueue
+#   Worker pool                → mock Krypton client
+#   Mock Registry              → logged but no real call
+#
+# Requires: no Postgres, no Krypton, no Registry — pure in-memory mock.
+
+demo-orbital-mock: demo-build
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║   CmkKryptonBridge — Full Orbital Flow Demo  (mock mode)         ║"
+	@echo "║   CMK→orbital→Bridge→[mock Krypton]→[mock Registry]             ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "▶ Starting proxy (mock mode, orbital enabled)..."
+	@$(BINARY_PROXY) --config=config.mock.yaml 2>&1 | grep -v "^$$" & echo $$! > /tmp/cmk-krypton-bridge.pid
+	@sleep 0.8
+	@echo ""
+	@echo "┌─ [1/3] Sending orbital TaskRequest (simulating CMK Backend) ──────"
+	@echo "│  task type : cmk-krypton-bridge.ensure-key-hierarchy"
+	@echo "│  tenant    : $(TENANT)   service: $(SERVICE)   level: L3"
+	@echo "│"
+	@$(BINARY_ORBITAL_DEMO) \
+	  --orbital-addr=localhost:9094 \
+	  --proxy-addr=localhost:9092 \
+	  --tenant-id=$(TENANT) \
+	  --service-id=$(SERVICE) \
+	  --level=3 \
+	  --poll-interval=200ms \
+	  --timeout=30s
+	@echo ""
+	@echo "▶ Stopping proxy..."
+	@kill $$(cat /tmp/cmk-krypton-bridge.pid) 2>/dev/null || true
+	@rm -f /tmp/cmk-krypton-bridge.pid
+	@echo ""
+	@echo "✓ Orbital demo complete (mock mode)."
+
+# ── demo: orbital full-flow (real Krypton + Registry via port-forward) ───────
+#
+#   Prerequisites (run in separate terminals first):
+#   Terminal 1: kubectl port-forward -n services svc/krypton-root 18080:8080
+#   Terminal 2: kubectl port-forward -n services svc/registry 19092:9092
+#   Terminal 3: docker run -d -p 5432:5432 -e POSTGRES_DB=cmk_krypton_bridge \
+#                 -e POSTGRES_USER=user -e POSTGRES_PASSWORD=pass postgres:16-alpine
+#
+#   make demo-orbital-portforward
+
+demo-orbital-portforward: demo-build
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║   CmkKryptonBridge — Orbital Demo  (port-forward to worker01)    ║"
+	@echo "║   Krypton : localhost:18080  Registry : localhost:19092           ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "▶ Starting proxy (port-forward config)..."
+	@GRPC_ENFORCE_ALPN_ENABLED=false $(BINARY_PROXY) --config=config.portforward.yaml 2>&1 \
+	  | grep -v "^$$" & echo $$! > /tmp/cmk-krypton-bridge.pid
+	@sleep 1.5
+	@echo ""
+	@$(BINARY_ORBITAL_DEMO) \
+	  --orbital-addr=localhost:9094 \
+	  --proxy-addr=localhost:9092 \
+	  --tenant-id=$(TENANT) \
+	  --service-id=$(SERVICE) \
+	  --level=3 \
+	  --poll-interval=500ms \
+	  --timeout=60s
+	@echo ""
+	@echo "▶ Stopping proxy..."
+	@kill $$(cat /tmp/cmk-krypton-bridge.pid) 2>/dev/null || true
+	@rm -f /tmp/cmk-krypton-bridge.pid
+	@echo ""
+	@echo "✓ Port-forward demo complete."
+
+demo-orbital: demo-build
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║   CmkKryptonBridge — Full Orbital Flow Demo  (real backends)     ║"
+	@echo "║   CMK→orbital→Bridge→Krypton→Registry                           ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "▶ Starting proxy (real Krypton + Registry)..."
+	@GRPC_ENFORCE_ALPN_ENABLED=false $(BINARY_PROXY) --config=config.yaml 2>&1 \
+	  | grep -v "^$$" & echo $$! > /tmp/cmk-krypton-bridge.pid
+	@sleep 1.5
+	@echo ""
+	@$(BINARY_ORBITAL_DEMO) \
+	  --orbital-addr=localhost:9094 \
+	  --proxy-addr=localhost:9092 \
+	  --tenant-id=$(TENANT) \
+	  --service-id=$(SERVICE) \
+	  --level=3 \
+	  --poll-interval=500ms \
+	  --timeout=60s
+	@echo ""
+	@echo "▶ Stopping proxy..."
+	@kill $$(cat /tmp/cmk-krypton-bridge.pid) 2>/dev/null || true
+	@rm -f /tmp/cmk-krypton-bridge.pid
+	@echo ""
+	@echo "✓ Orbital demo complete."
+
+
 
 docker:
 	docker build -t $(IMAGE_TAG) .

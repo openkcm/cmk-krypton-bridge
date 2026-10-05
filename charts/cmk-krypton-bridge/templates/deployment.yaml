@@ -13,10 +13,19 @@ spec:
     metadata:
       labels:
         {{- include "cmk-krypton-bridge.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
       containers:
         - name: cmk-krypton-bridge
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: grpc
@@ -32,7 +41,32 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
-            - name: KRYPTON_PROXY_KRYPTONCLIENT_ADDRESS
-              value: {{ .Values.config.kryptonClient.address | quote }}
-            - name: KRYPTON_PROXY_GRPCSERVER_ADDRESS
-              value: {{ .Values.config.grpcServer.address | quote }}
+            - name: KRYPTON_PROXY_DATABASE_DSN
+              {{- if .Values.database.secretName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: DATABASE_DSN
+              {{- else }}
+              value: {{ .Values.database.dsn | quote }}
+              {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cmk-krypton-bridge
+              readOnly: true
+            {{- if .Values.orbital.rabbitmq.secretName }}
+            - name: rabbitmq-credentials
+              mountPath: /etc/credentials/rabbitmq
+              readOnly: true
+            {{- end }}
+          args:
+            - --config=/etc/cmk-krypton-bridge/config.yaml
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "cmk-krypton-bridge.fullname" . }}
+        {{- if .Values.orbital.rabbitmq.secretName }}
+        - name: rabbitmq-credentials
+          secret:
+            secretName: {{ .Values.orbital.rabbitmq.secretName }}
+        {{- end }}

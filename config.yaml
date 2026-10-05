@@ -18,8 +18,33 @@ kryptonClient:
     type: tls
 
 orbital:
-  enabled: false
-  mustVerifySig: false
+  enabled: true
+  amqp:
+    url: "amqps://kms-rabbitmqcluster.services.svc.cluster.local:5671"
+    target: "/exchanges/cmk/cf-eu10.krypton-bridge.replies"
+    source: "/queues/krypton-bridge.cf-eu10.requests"
+    auth:
+      type: mtls
+      mtls:
+        certFile: /etc/credentials/rabbitmq/tls.crt
+        keyFile:  /etc/credentials/rabbitmq/tls.key
+        caFile:   /etc/credentials/rabbitmq/ca.crt
 
 keyHierarchy:
   maxDepth: 4
+
+database:
+  dsn: "postgres://user:pass@localhost:5432/cmk_krypton_bridge?sslmode=disable"
+
+worker:
+  concurrency: 3
+  pollInterval: 500ms
+  maxAttempts: 10
+  stuckTimeout: 5m
+
+registry:
+  enabled: true
+  # cluster-internal: plain gRPC (no TLS, no auth)
+  insecure: true
+  address: "registry.services.svc.cluster.local:9092"
+  region: "eu-central"

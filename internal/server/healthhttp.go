@@ -3,9 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
-
-	"go.uber.org/zap"
 
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 )
@@ -13,10 +12,10 @@ import (
 // HealthHTTPServer provides /healthz and /readyz endpoints for Kubernetes probes.
 type HealthHTTPServer struct {
 	client kryptonclient.Client
-	log    *zap.Logger
+	log    *slog.Logger
 }
 
-func NewHealthHTTPServer(client kryptonclient.Client, log *zap.Logger) *HealthHTTPServer {
+func NewHealthHTTPServer(client kryptonclient.Client, log *slog.Logger) *HealthHTTPServer {
 	return &HealthHTTPServer{client: client, log: log}
 }
 
@@ -43,14 +42,14 @@ func (h *HealthHTTPServer) readiness(w http.ResponseWriter, r *http.Request) {
 }
 
 // StartHealthServer starts the HTTP health server and returns when ctx is done.
-func StartHealthServer(ctx context.Context, addr string, h http.Handler, log *zap.Logger) {
+func StartHealthServer(ctx context.Context, addr string, h http.Handler, log *slog.Logger) {
 	srv := &http.Server{Addr: addr, Handler: h}
 	go func() {
 		<-ctx.Done()
 		srv.Shutdown(context.Background()) //nolint:errcheck
 	}()
-	log.Info("health HTTP server listening", zap.String("address", addr))
+	log.InfoContext(ctx, "health HTTP server listening", slog.String("address", addr))
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Error("health server error", zap.Error(err))
+		log.ErrorContext(ctx, "health server error", slog.String("error", err.Error()))
 	}
 }

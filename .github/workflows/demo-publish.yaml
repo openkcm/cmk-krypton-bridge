@@ -15,7 +15,8 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ghcr.io/openkcm/cmk-krypton-bridge-demo
-  CHART_NAME: cmk-krypton-bridge
+  CHART_REPOSITORY: ghcr.io/openkcm/charts
+  CHART_NAME: cmkkryptonbridge
 
 jobs:
   publish:
@@ -88,4 +89,4 @@ jobs:
         shell: bash
         run: |
           helm push "dist/${CHART_NAME}-${{ steps.release.outputs.chart_version }}.tgz" \
-            "oci://${REGISTRY}/openkcm"
+            "oci://${CHART_REPOSITORY}"

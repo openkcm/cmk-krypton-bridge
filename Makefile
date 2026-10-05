@@ -1,4 +1,4 @@
-.PHONY: all build test test-integration lint proto docker helm-package run tidy buf-init \
+.PHONY: all build demo-build test test-integration lint proto docker helm-package run tidy buf-init \
         demo demo-mock demo-async demo-async-mock \
         demo-health demo-ensure-l2 demo-ensure-l3 demo-ensure-l4 \
         demo-idempotency demo-list-keys demo-new-tenant \
@@ -8,6 +8,7 @@
 
 BINARY_PROXY        = bin/cmk-krypton-bridge
 BINARY_CLI          = bin/cmk2kryptonctl
+BINARY_KRYPTON_TEST = bin/krypton-test
 BINARY_ORBITAL_DEMO = bin/orbital-demo
 PROTO_DIR     = proto
 GEN_DIR       = internal/gen
@@ -38,7 +39,10 @@ proto:
 build:
 	go build -o $(BINARY_PROXY)        ./cmd/proxy
 	go build -o $(BINARY_CLI)          ./cmd/cli
-	go build -o $(BINARY_ORBITAL_DEMO) ./cmd/orbital-demo
+
+demo-build: build
+	go build -o $(BINARY_KRYPTON_TEST) ./cmd/demos/krypton-test
+	go build -o $(BINARY_ORBITAL_DEMO) ./cmd/demos/orbital-demo
 
 tidy:
 	go mod tidy
@@ -299,7 +303,7 @@ demo-async-registry:
 #
 # Requires: no Postgres, no Krypton, no Registry — pure in-memory mock.
 
-demo-orbital-mock: build
+demo-orbital-mock: demo-build
 	@echo ""
 	@echo "╔══════════════════════════════════════════════════════════════════╗"
 	@echo "║   CmkKryptonBridge — Full Orbital Flow Demo  (mock mode)         ║"
@@ -339,7 +343,7 @@ demo-orbital-mock: build
 #
 #   make demo-orbital-portforward
 
-demo-orbital-portforward: build
+demo-orbital-portforward: demo-build
 	@echo ""
 	@echo "╔══════════════════════════════════════════════════════════════════╗"
 	@echo "║   CmkKryptonBridge — Orbital Demo  (port-forward to worker01)    ║"
@@ -366,7 +370,7 @@ demo-orbital-portforward: build
 	@echo ""
 	@echo "✓ Port-forward demo complete."
 
-demo-orbital: build
+demo-orbital: demo-build
 	@echo ""
 	@echo "╔══════════════════════════════════════════════════════════════════╗"
 	@echo "║   CmkKryptonBridge — Full Orbital Flow Demo  (real backends)     ║"

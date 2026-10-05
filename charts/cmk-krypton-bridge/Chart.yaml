@@ -1,5 +1,5 @@
 apiVersion: v2
-name: cmk-krypton-bridge
+name: cmkkryptonbridge
 description: CmkKryptonBridge — Key Hierarchy Orchestration Service
 type: application
 version: 0.1.0

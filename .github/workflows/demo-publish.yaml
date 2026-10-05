@@ -1,0 +1,92 @@
+name: Publish Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image and Helm chart tag (defaults to demo-<short SHA>)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/openkcm/cmk-krypton-bridge/images/cmk-krypton-bridge
+  CHART_REPOSITORY: ghcr.io/openkcm/charts
+  CHART_NAME: cmkkryptonbridge
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set release tag
+        id: release
+        shell: bash
+        run: |
+          tag="${{ inputs.tag }}"
+          if [[ -z "$tag" ]]; then
+            tag="demo-${GITHUB_SHA::7}"
+          fi
+
+          if [[ ! "$tag" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Invalid tag: $tag" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "chart_version=0.1.0-demo.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push demo image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.release.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:demo-latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.release.outputs.tag }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to Helm OCI registry
+        shell: bash
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${REGISTRY}" \
+            --username "${{ github.actor }}" \
+            --password-stdin
+
+      - name: Package Helm chart
+        shell: bash
+        run: |
+          mkdir -p dist
+          helm lint charts/cmk-krypton-bridge
+          helm package charts/cmk-krypton-bridge \
+            --destination dist \
+            --version "${{ steps.release.outputs.chart_version }}" \
+            --app-version "${{ steps.release.outputs.tag }}"
+
+      - name: Push Helm chart
+        shell: bash
+        run: |
+          helm push "dist/${CHART_NAME}-${{ steps.release.outputs.chart_version }}.tgz" \
+            "oci://${CHART_REPOSITORY}"

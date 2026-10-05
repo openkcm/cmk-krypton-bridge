@@ -1,0 +1,52 @@
+application:
+  name: cmk-krypton-bridge
+  buildInfo:
+    version: 0.1.0
+
+logger:
+  level: debug
+  format: json
+
+grpcServer:
+  enabled: true
+  address: ":9092"
+
+kryptonClient:
+  mockMode: false
+  address: "localhost:18080"   # kubectl port-forward svc/krypton-root 18080:8080
+  secretRef:
+    type: insecure
+
+orbital:
+  enabled: false   # AMQP broker not reachable via port-forward — disable for local dev
+  amqp:
+    url: "amqps://kms-rabbitmqcluster.services.svc.cluster.local:5671"
+    target: "/exchanges/cmk/cf-eu10.krypton-bridge.replies"
+    source: "/queues/krypton-bridge.cf-eu10.requests"
+    auth:
+      type: mtls
+      mtls:
+        certFile: /etc/credentials/rabbitmq/tls.crt
+        keyFile:  /etc/credentials/rabbitmq/tls.key
+        caFile:   /etc/credentials/rabbitmq/ca.crt
+
+keyHierarchy:
+  maxDepth: 4
+
+database:
+  dsn: "postgres://user:pass@localhost:5433/cmk_krypton_bridge?sslmode=disable"
+
+worker:
+  concurrency: 3
+  pollInterval: 500ms
+  maxAttempts: 10
+  stuckTimeout: 5m
+
+registry:
+  enabled: true
+  insecure: true
+  address: "localhost:19092"
+  region: "cf-eu10"
+  ownerId: "owner123"
+  ownerType: "ownerType1"
+  role: "ROLE_TRIAL"

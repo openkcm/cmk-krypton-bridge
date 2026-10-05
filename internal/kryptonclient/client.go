@@ -16,15 +16,18 @@ const (
 type KeyStatus string
 
 const (
-	KeyStatusActive      KeyStatus = "active"
+	KeyStatusActive        KeyStatus = "active"
 	KeyStatusPreActivation KeyStatus = "pre-activation"
-	KeyStatusDisabled    KeyStatus = "suspended"
-	KeyStatusDeleted     KeyStatus = "destroyed"
+	KeyStatusDisabled      KeyStatus = "suspended"
+	KeyStatusDeleted       KeyStatus = "destroyed"
 )
 
 // Key is the internal representation of a key in CmkKryptonBridge.
 type Key struct {
-	ID        string
+	ID string
+	// ProxyID is the deterministic identifier used by the bridge. ID remains
+	// the identifier returned by the backing key service.
+	ProxyID   string
 	Name      string
 	Level     Level
 	TenantID  string
@@ -37,9 +40,11 @@ type Key struct {
 
 // KindToLevel maps a Krypton kind string to a proxy Level.
 // The running Krypton instance uses K0/K1/K2 for its configured hierarchy:
-//   K0 = root (no parent)    → L2 in our proxy model (tenant root)
-//   K1 = KEK (parent=K0)    → L3 in our proxy model (service key)
-//   K2 = DEK (parent=K1)    → L4 in our proxy model (DEK)
+//
+//	K0 = root (no parent)    → L2 in our proxy model (tenant root)
+//	K1 = KEK (parent=K0)    → L3 in our proxy model (service key)
+//	K2 = DEK (parent=K1)    → L4 in our proxy model (DEK)
+//
 // Also handles legacy kind names for backward compatibility with mock usage.
 func KindToLevel(kind string) Level {
 	switch kind {

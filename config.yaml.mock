@@ -18,9 +18,28 @@ kryptonClient:
     type: insecure
 
 orbital:
-  enabled: false
-  mustVerifySig: false
+  enabled: true
+  amqp:
+    url: "amqp://guest:guest@localhost:5672/"
+    target: "krypton-bridge.replies"
+    source: "krypton-bridge.requests"
+    auth:
+      type: anonymous
 
 keyHierarchy:
   cacheTTL: 30s
   maxDepth: 4
+
+database:
+  dsn: "postgres://user:pass@localhost:5432/cmk_krypton_bridge?sslmode=disable"
+
+worker:
+  concurrency: 3
+  pollInterval: 500ms
+  maxAttempts: 10
+  stuckTimeout: 5m
+
+registry:
+  enabled: false
+  address: "localhost:9093"
+  region: "eu-central"

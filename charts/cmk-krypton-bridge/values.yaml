@@ -1,9 +1,11 @@
 replicaCount: 1
 
 image:
-  repository: openkcm/cmk-krypton-bridge
+  repository: ghcr.io/openkcm/images/cmk-krypton-bridge
   pullPolicy: IfNotPresent
-  tag: "0.1.0"
+  tag: ""  # defaults to .Chart.AppVersion
+
+imagePullSecrets: []
 
 service:
   grpcPort: 9092
@@ -13,24 +15,63 @@ config:
   grpcServer:
     address: ":9092"
   kryptonClient:
-    address: "krypton:9093"
+    address: "krypton-root.services.svc.cluster.local:8080"
     mockMode: false
     secretRef:
       type: insecure
+  orbital:
+    enabled: true
+    amqp:
+      url: "amqps://kms-rabbitmqcluster.services.svc.cluster.local:5671"
+      target: "/exchanges/cmk/cf-eu10.krypton-bridge.replies"
+      source: "/queues/krypton-bridge.cf-eu10.requests"
+      auth:
+        type: mtls
+        mtls:
+          certFile: /etc/credentials/rabbitmq/tls.crt
+          keyFile:  /etc/credentials/rabbitmq/tls.key
+          caFile:   /etc/credentials/rabbitmq/ca.crt
+  keyHierarchy:
+    maxDepth: 4
+  database:
+    dsn: ""  # set via secret / env override
+  worker:
+    concurrency: 3
+    pollInterval: 500ms
+    maxAttempts: 10
+    stuckTimeout: 5m
+  registry:
+    enabled: true
+    address: "registry.services.svc.cluster.local:9092"
+    insecure: true
+    region: "cf-eu10"
+    ownerId: ""
+    ownerType: "ownerType1"
+    role: "ROLE_TRIAL"
+
+# Database DSN injected via env var — set this to a k8s secret reference
+database:
+  secretName: ""       # name of secret containing DATABASE_DSN key
+  dsn: ""              # inline DSN (only for dev — prefer secretName)
+
+# RabbitMQ TLS credentials secret (must contain tls.crt, tls.key, ca.crt)
+orbital:
+  rabbitmq:
+    secretName: ""     # e.g. cmk-krypton-bridge-rabbitmq-tls
 
 resources:
   limits:
     cpu: 500m
-    memory: 128Mi
+    memory: 256Mi
   requests:
     cpu: 50m
-    memory: 32Mi
+    memory: 64Mi
 
 livenessProbe:
   httpGet:
     path: /healthz
     port: 8080
-  initialDelaySeconds: 5
+  initialDelaySeconds: 10
   periodSeconds: 10
 
 readinessProbe:

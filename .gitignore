@@ -34,6 +34,8 @@ go.work
 .go_cache
 .go_path
 bin/
+/proxy
+/orbital-demo
 internal/gen/kms/
 *.out
 *.test

@@ -3,9 +3,8 @@ package orchestrator_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
-
-	"go.uber.org/zap/zaptest"
 
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 	"github.com/openkcm/cmk-krypton-bridge/internal/orchestrator"
@@ -13,7 +12,7 @@ import (
 
 func TestEnsureHierarchy_L3_L2Missing(t *testing.T) {
 	mock := kryptonclient.NewMockClient()
-	orch := orchestrator.New(mock, zaptest.NewLogger(t))
+	orch := orchestrator.New(mock, slog.Default())
 
 	result, err := orch.EnsureHierarchy(context.Background(), orchestrator.EnsureHierarchyRequest{
 		TenantID:  "tenant-abc",
@@ -49,7 +48,7 @@ func TestEnsureHierarchy_L3_L2Exists(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	orch := orchestrator.New(mock, zaptest.NewLogger(t))
+	orch := orchestrator.New(mock, slog.Default())
 	result, err := orch.EnsureHierarchy(context.Background(), orchestrator.EnsureHierarchyRequest{
 		TenantID:  "tenant-abc",
 		ServiceID: "payments",
@@ -65,7 +64,7 @@ func TestEnsureHierarchy_L3_L2Exists(t *testing.T) {
 
 func TestEnsureHierarchy_Idempotent(t *testing.T) {
 	mock := kryptonclient.NewMockClient()
-	orch := orchestrator.New(mock, zaptest.NewLogger(t))
+	orch := orchestrator.New(mock, slog.Default())
 	req := orchestrator.EnsureHierarchyRequest{
 		TenantID:  "tenant-abc",
 		ServiceID: "payments",
@@ -93,7 +92,7 @@ func TestEnsureHierarchy_Idempotent(t *testing.T) {
 
 func TestEnsureHierarchy_L4_FullChain(t *testing.T) {
 	mock := kryptonclient.NewMockClient()
-	orch := orchestrator.New(mock, zaptest.NewLogger(t))
+	orch := orchestrator.New(mock, slog.Default())
 
 	result, err := orch.EnsureHierarchy(context.Background(), orchestrator.EnsureHierarchyRequest{
 		TenantID:  "tenant-xyz",
@@ -106,14 +105,20 @@ func TestEnsureHierarchy_L4_FullChain(t *testing.T) {
 	if len(result.CreatedKeys) != 3 {
 		t.Errorf("expected 3 created keys (L2+L3+L4), got %d", len(result.CreatedKeys))
 	}
+	if len(result.EnsuredKeys) != 3 {
+		t.Errorf("expected 3 ensured keys (L2+L3+L4), got %d", len(result.EnsuredKeys))
+	}
 	if result.RequestedKey.Level != kryptonclient.LevelL4 {
 		t.Errorf("expected L4, got %d", result.RequestedKey.Level)
+	}
+	if result.RequestedKey.ProxyID != "tenant-xyz-invoicing-l4" {
+		t.Errorf("expected deterministic proxy ID, got %q", result.RequestedKey.ProxyID)
 	}
 }
 
 func TestEnsureHierarchy_MissingTenantID(t *testing.T) {
 	mock := kryptonclient.NewMockClient()
-	orch := orchestrator.New(mock, zaptest.NewLogger(t))
+	orch := orchestrator.New(mock, slog.Default())
 	_, err := orch.EnsureHierarchy(context.Background(), orchestrator.EnsureHierarchyRequest{
 		Level: kryptonclient.LevelL3,
 	})

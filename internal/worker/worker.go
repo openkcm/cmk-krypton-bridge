@@ -22,6 +22,7 @@ type Worker struct {
 	region       string
 	ownerID      string
 	ownerType    string
+	systemType   string
 	role         string
 }
 
@@ -108,6 +109,7 @@ func (w *Worker) processOne(ctx context.Context) {
 			Region:     w.region,
 			OwnerID:    w.ownerID,
 			OwnerType:  w.ownerType,
+			SystemType: w.systemType,
 			Role:       w.role,
 		}
 		if regErr := w.registry.EnsureSystem(ctx, regReq); regErr != nil {
@@ -136,6 +138,7 @@ type Pool struct {
 	region       string
 	ownerID      string
 	ownerType    string
+	systemType   string
 	role         string
 }
 
@@ -150,6 +153,7 @@ func NewPool(
 	region string,
 	ownerID string,
 	ownerType string,
+	systemType string,
 	role string,
 ) *Pool {
 	return &Pool{
@@ -163,6 +167,7 @@ func NewPool(
 		region:       region,
 		ownerID:      ownerID,
 		ownerType:    ownerType,
+		systemType:   systemType,
 		role:         role,
 	}
 }
@@ -185,6 +190,7 @@ func (p *Pool) Start(ctx context.Context) {
 				region:       p.region,
 				ownerID:      p.ownerID,
 				ownerType:    p.ownerType,
+				systemType:   p.systemType,
 				role:         p.role,
 			}
 			ticker := time.NewTicker(p.pollInterval)

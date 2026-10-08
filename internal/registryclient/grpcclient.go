@@ -176,6 +176,7 @@ func (c *GRPCClient) ensureSystem(ctx context.Context, req EnsureSystemRequest) 
 		L2KeyId:    req.L2KeyID,
 		Region:     req.Region,
 		Status:     typespb.Status_STATUS_AVAILABLE,
+		Type:       req.SystemType,
 	})
 	if err != nil && !isAlreadyExists(err) {
 		return fmt.Errorf("registry RegisterSystem(%s): %w", req.ServiceID, err)

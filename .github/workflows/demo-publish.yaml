@@ -27,6 +27,8 @@ jobs:
 
       - name: Set up Buf
         uses: bufbuild/buf-setup-action@v1.2.1
+        with:
+          version: "1.57.2"
 
       - name: Generate protobuf code
         run: buf generate

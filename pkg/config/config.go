@@ -88,6 +88,7 @@ type RegistryConfig struct {
 	Region      string `yaml:"region"      mapstructure:"region"`
 	OwnerID     string `yaml:"ownerId"     mapstructure:"ownerId"`
 	OwnerType   string `yaml:"ownerType"   mapstructure:"ownerType"`
+	SystemType  string `yaml:"systemType"  mapstructure:"systemType"`  // required by registry when registering systems
 	Role        string `yaml:"role"        mapstructure:"role"`        // e.g. ROLE_TRIAL (default)
 	Insecure    bool   `yaml:"insecure"    mapstructure:"insecure"`
 	BearerToken string `yaml:"bearerToken" mapstructure:"bearerToken"`

@@ -78,7 +78,7 @@ func TestPool_HappyPath(t *testing.T) {
 		Level:    kryptonclient.LevelL2,
 	})
 
-	pool := worker.NewPool(1, store, orch, reg, slog.Default(), 10*time.Millisecond, 5*time.Minute, "eu-central", "", "", "")
+	pool := worker.NewPool(1, store, orch, reg, slog.Default(), 10*time.Millisecond, 5*time.Minute, "eu-central", "", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
@@ -103,7 +103,7 @@ func TestPool_RetryThenSucceed(t *testing.T) {
 		Level:    kryptonclient.LevelL2,
 	})
 
-	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 10*time.Millisecond, 5*time.Minute, "test-region", "", "", "")
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 10*time.Millisecond, 5*time.Minute, "test-region", "", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
@@ -144,7 +144,7 @@ func TestPool_ExceedsMaxAttempts_ReachesFailed(t *testing.T) {
 	}
 	store.SetMaxAttempts(id, 3)
 
-	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 5*time.Millisecond, 5*time.Minute, "test-region", "", "", "")
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 5*time.Millisecond, 5*time.Minute, "test-region", "", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	go pool.Start(ctx)
@@ -169,7 +169,7 @@ func TestPool_Heartbeat_PreventsRecovery(t *testing.T) {
 	})
 
 	stuckTimeout := 200 * time.Millisecond
-	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 10*time.Millisecond, stuckTimeout, "test-region", "", "", "")
+	pool := worker.NewPool(1, store, orch, registryclient.NoopClient{}, slog.Default(), 10*time.Millisecond, stuckTimeout, "test-region", "", "", "", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	go pool.Start(ctx)

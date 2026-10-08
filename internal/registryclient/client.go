@@ -11,6 +11,7 @@ type EnsureSystemRequest struct {
 	Region     string
 	OwnerID    string
 	OwnerType  string
+	SystemType string // required by registry RegisterSystem
 	Role       string // e.g. "ROLE_TRIAL", "ROLE_LIVE" — defaults to ROLE_TRIAL if empty
 }
 

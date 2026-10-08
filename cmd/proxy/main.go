@@ -123,6 +123,7 @@ func main() {
 		cfg.Registry.Region,
 		cfg.Registry.OwnerID,
 		cfg.Registry.OwnerType,
+		cfg.Registry.SystemType,
 		cfg.Registry.Role,
 	)
 	go pool.Start(ctx)

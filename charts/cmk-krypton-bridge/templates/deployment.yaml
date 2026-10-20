@@ -1,72 +1,170 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "cmk-krypton-bridge.fullname" . }}
+  namespace: {{ include "cmk-krypton-bridge.namespace" . }}
   labels:
     {{- include "cmk-krypton-bridge.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.hpa.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- with .Values.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "cmk-krypton-bridge.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      labels:
-        {{- include "cmk-krypton-bridge.selectorLabels" . | nindent 8 }}
       annotations:
+        # Restart the pods when the configuration changes.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.pod.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "cmk-krypton-bridge.labels" . | nindent 8 }}
+        {{- with .Values.pod.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      serviceAccountName: {{ include "cmk-krypton-bridge.serviceAccountName" . }}
+      # The bridge does not call the Kubernetes API.
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      enableServiceLinks: {{ .Values.pod.enableServiceLinks }}
+      {{- with .Values.pod.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.pod.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ . }}
+      {{- end }}
+      {{- with .Values.pod.securityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.extraInitContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: cmk-krypton-bridge
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ template "cmk-krypton-bridge.image" (tuple .Values.image .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.image.command }}
+          command:
+            {{- if kindIs "string" . }}
+            - {{ . | quote }}
+            {{- else }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          args:
+            - --config=/etc/cmk-krypton-bridge/config.yaml
+            {{- with .Values.image.args }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.ports }}
           ports:
-            - name: grpc
-              containerPort: {{ .Values.service.grpcPort }}
-              protocol: TCP
-            - name: http
-              containerPort: {{ .Values.service.httpPort }}
-              protocol: TCP
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.database.existingSecret .Values.extraEnvs }}
           env:
+            {{- with .Values.database.existingSecret }}
             - name: KRYPTON_PROXY_DATABASE_DSN
-              {{- if .Values.database.secretName }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.secretName }}
-                  key: DATABASE_DSN
-              {{- else }}
-              value: {{ .Values.database.dsn | quote }}
-              {{- end }}
+                  name: {{ . }}
+                  key: {{ $.Values.database.dsnKey }}
+            {{- end }}
+            {{- with .Values.extraEnvs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.extraEnvsFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: config
-              mountPath: /etc/cmk-krypton-bridge
+              mountPath: /etc/cmk-krypton-bridge/config.yaml
+              subPath: config.yaml
               readOnly: true
-            {{- if .Values.orbital.rabbitmq.secretName }}
+            {{- if .Values.rabbitmq.existingSecret }}
             - name: rabbitmq-credentials
               mountPath: /etc/credentials/rabbitmq
               readOnly: true
             {{- end }}
-          args:
-            - --config=/etc/cmk-krypton-bridge/config.yaml
+            {{- if .Values.tmpVolume.enabled }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- with .Values.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       volumes:
         - name: config
           configMap:
-            name: {{ include "cmk-krypton-bridge.fullname" . }}
-        {{- if .Values.orbital.rabbitmq.secretName }}
+            name: {{ include "cmk-krypton-bridge.fullname" . }}-config
+        {{- with .Values.rabbitmq.existingSecret }}
         - name: rabbitmq-credentials
           secret:
-            secretName: {{ .Values.orbital.rabbitmq.secretName }}
+            secretName: {{ . }}
+            defaultMode: 0440
         {{- end }}
+        {{- if .Values.tmpVolume.enabled }}
+        - name: tmp
+          emptyDir:
+            {{- with .Values.tmpVolume.sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.pod.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pod.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

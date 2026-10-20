@@ -1,0 +1,67 @@
+The CMK-2-Krypton Bridge is deployed as {{ include "cmk-krypton-bridge.fullname" . }} in namespace {{ include "cmk-krypton-bridge.namespace" . }}.
+{{- $cfg := .Values.config }}
+{{- with .Values.service.ports }}
+
+gRPC API (cluster internal): {{ include "cmk-krypton-bridge.fullname" $ }}.{{ include "cmk-krypton-bridge.namespace" $ }}.svc:{{ (index . 0).port }}
+{{- end }}
+Krypton: {{ dig "kryptonClient" "address" "" $cfg }}
+{{- if dig "orbital" "enabled" false $cfg }}
+Tasks from CMK: {{ dig "orbital" "amqp" "source" "" $cfg }}, answers to: {{ dig "orbital" "amqp" "target" "" $cfg }}
+{{- end }}
+Configuration: ConfigMap {{ include "cmk-krypton-bridge.fullname" . }}-config
+
+Check the pods and their connection to Krypton:
+  kubectl --namespace {{ include "cmk-krypton-bridge.namespace" . }} get pods -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/name=cmk-krypton-bridge
+  kubectl --namespace {{ include "cmk-krypton-bridge.namespace" . }} port-forward service/{{ include "cmk-krypton-bridge.fullname" . }} 8080:http
+  curl -s http://localhost:8080/readyz
+{{- /* Environment variables that the container gets. */}}
+{{- $envs := list }}
+{{- if .Values.database.existingSecret }}{{ $envs = append $envs "KRYPTON_PROXY_DATABASE_DSN" }}{{ end }}
+{{- range .Values.extraEnvs }}{{ $envs = append $envs .name }}{{ end }}
+{{- $envsFrom := not (empty .Values.extraEnvsFrom) }}
+{{- $mounts := list }}
+{{- if .Values.rabbitmq.existingSecret }}{{ $mounts = append $mounts "/etc/credentials/rabbitmq" }}{{ end }}
+{{- range .Values.extraVolumeMounts }}{{ $mounts = append $mounts (.mountPath | toString) }}{{ end }}
+{{- $mockMode := dig "kryptonClient" "mockMode" false $cfg }}
+{{- $warnings := list }}
+{{- if $mockMode }}
+{{- $warnings = append $warnings "config.kryptonClient.mockMode is true: the bridge uses an in-memory Krypton and an in-memory job store. Development only." }}
+{{- else if not (or (has "KRYPTON_PROXY_DATABASE_DSN" $envs) $envsFrom (dig "database" "dsn" "" $cfg)) }}
+{{- $warnings = append $warnings "No database connection string: the bridge exits at startup with `database.dsn is required`. Set database.existingSecret." }}
+{{- end }}
+{{- if dig "database" "dsn" "" $cfg }}
+{{- $warnings = append $warnings "config.database.dsn is set: the connection string, with its password, is stored in plain text in the ConfigMap. Use database.existingSecret." }}
+{{- end }}
+{{- if and (dig "orbital" "enabled" false $cfg) (eq (dig "orbital" "amqp" "auth" "type" "" $cfg | toString) "mtls") }}
+{{- $certFile := dig "orbital" "amqp" "auth" "mtls" "certFile" "" $cfg | toString }}
+{{- $mounted := false }}
+{{- range $mounts }}{{ if hasPrefix (printf "%s/" (trimSuffix "/" .)) $certFile }}{{ $mounted = true }}{{ end }}{{ end }}
+{{- if not $mounted }}
+{{- $warnings = append $warnings (printf "The AMQP client certificate %s is not on a mounted volume: the bridge cannot connect to the broker. Set rabbitmq.existingSecret." $certFile) }}
+{{- end }}
+{{- end }}
+{{- if dig "registry" "enabled" false $cfg }}
+{{- range $key := list "ownerId" "systemType" }}
+{{- if not (dig "registry" $key "" $cfg) }}
+{{- $warnings = append $warnings (printf "config.registry.%s is empty: the Registry rejects the registrations of the bridge, and the created keys stay unregistered (logged as `registry EnsureSystem failed`)." $key) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if eq (dig "logger" "level" "" $cfg | toString) "debug" }}
+{{- $warnings = append $warnings "config.logger.level is debug: the logs contain the details of every task. Use info in production." }}
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+{{- $warnings = append $warnings "networkPolicy.enabled is false: the gRPC API has no authentication, so every client that can reach the Service can create key hierarchies. Enable networkPolicy or use a service mesh." }}
+{{- end }}
+{{- if ne .Values.service.type "ClusterIP" }}
+{{- $warnings = append $warnings (printf "service.type is %s: the gRPC API is reachable from outside the cluster." .Values.service.type) }}
+{{- end }}
+{{- if $warnings }}
+
+WARNINGS:
+{{- range $warnings }}
+  - {{ . }}
+{{- end }}
+{{- end }}
+
+Documentation: https://github.com/openkcm/cmk-krypton-bridge/tree/main/charts/cmk-krypton-bridge

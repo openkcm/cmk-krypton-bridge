@@ -43,7 +43,7 @@ L4  → {tenantID}-{serviceID}-l4
 
 ```
 cmd/
-  proxy/          daemon entry point
+  cmk-krypton-bridge/ daemon entry point
   cli/            cmk2kryptonctl entry point
   demos/          manual integration/demo tools
     krypton-test/ direct Krypton gRPC smoke test
@@ -52,7 +52,7 @@ internal/
   kryptonclient/  Client interface, in-memory MockClient, gRPC stub
   orchestrator/   EnsureHierarchy logic + unit tests
   server/         gRPC handler, HTTP health endpoints, orbital scaffold
-  gen/            generated protobuf code (git-ignored, regenerate with make proto)
+  gen/            generated protobuf code (committed, regenerate with make proto)
 pkg/
   config/         Config struct + Viper loader
   logger/         zap logger factory

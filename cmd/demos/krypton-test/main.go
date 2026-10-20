@@ -31,12 +31,18 @@ func (p *permissiveTLS) ClientHandshake(ctx context.Context, authority string, r
 	return conn, info, nil
 }
 
-func (p *permissiveTLS) ServerHandshake(c net.Conn) (net.Conn, credentials.AuthInfo, error) { return p.base.ServerHandshake(c) }
-func (p *permissiveTLS) Info() credentials.ProtocolInfo                                     { return p.base.Info() }
+func (p *permissiveTLS) ServerHandshake(c net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	return p.base.ServerHandshake(c)
+}
+func (p *permissiveTLS) Info() credentials.ProtocolInfo { return p.base.Info() }
 func (p *permissiveTLS) Clone() credentials.TransportCredentials {
 	return &permissiveTLS{base: p.base.Clone()}
 }
-func (p *permissiveTLS) OverrideServerName(n string) error { return p.base.OverrideServerName(n) }
+
+// OverrideServerName is deprecated, but still part of credentials.TransportCredentials.
+func (p *permissiveTLS) OverrideServerName(n string) error {
+	return p.base.OverrideServerName(n) //nolint:staticcheck // delegates the interface method
+}
 
 func main() {
 	addr := "ing.worker01.kms.shoot.gardener.cc-one.showroom.apeirora.eu:443"
@@ -61,9 +67,9 @@ func main() {
 	if err != nil {
 		fmt.Printf("ListTenants error: %v\n", err)
 	} else {
-		fmt.Printf("Existing tenants: %d\n", len(listTenantsResp.Tenants))
-		for _, t := range listTenantsResp.Tenants {
-			fmt.Printf("  id=%s name=%s\n", t.Id, t.Name)
+		fmt.Printf("Existing tenants: %d\n", len(listTenantsResp.GetTenants()))
+		for _, t := range listTenantsResp.GetTenants() {
+			fmt.Printf("  id=%s name=%s\n", t.GetId(), t.GetName())
 		}
 	}
 
@@ -71,9 +77,9 @@ func main() {
 	tenantName := "acme-poc"
 	var tenantID string
 	for _, t := range listTenantsResp.GetTenants() {
-		if t.Name == tenantName {
-			tenantID = t.Id
-			fmt.Printf("\nFound existing tenant: id=%s name=%s\n", t.Id, t.Name)
+		if t.GetName() == tenantName {
+			tenantID = t.GetId()
+			fmt.Printf("\nFound existing tenant: id=%s name=%s\n", t.GetId(), t.GetName())
 			break
 		}
 	}
@@ -84,8 +90,8 @@ func main() {
 			fmt.Printf("CreateTenant error: %v\n", err)
 			os.Exit(1)
 		}
-		tenantID = createResp.Tenant.Id
-		fmt.Printf("Created tenant: id=%s name=%s\n", tenantID, createResp.Tenant.Name)
+		tenantID = createResp.GetTenant().GetId()
+		fmt.Printf("Created tenant: id=%s name=%s\n", tenantID, createResp.GetTenant().GetName())
 	}
 
 	// Step 3: List keys for tenant
@@ -94,9 +100,9 @@ func main() {
 	if err != nil {
 		fmt.Printf("ListKeys error: %v\n", err)
 	} else {
-		fmt.Printf("Existing keys: %d\n", len(listKeysResp.Keys))
-		for _, k := range listKeysResp.Keys {
-			fmt.Printf("  id=%s name=%-20s kind=%-5s state=%s\n", k.Id, k.Name, k.Kind, k.LifeCycleState)
+		fmt.Printf("Existing keys: %d\n", len(listKeysResp.GetKeys()))
+		for _, k := range listKeysResp.GetKeys() {
+			fmt.Printf("  id=%s name=%-20s kind=%-5s state=%s\n", k.GetId(), k.GetName(), k.GetKind(), k.GetLifeCycleState())
 		}
 	}
 
@@ -122,12 +128,12 @@ func main() {
 			return
 		}
 	}
-	k := announceResp.Key
-	fmt.Printf("AnnounceKey ok: id=%s kind=%s state=%s\n", k.Id, k.Kind, k.LifeCycleState)
+	k := announceResp.GetKey()
+	fmt.Printf("AnnounceKey ok: id=%s kind=%s state=%s\n", k.GetId(), k.GetKind(), k.GetLifeCycleState())
 
-	if k.LifeCycleState != "active" {
-		fmt.Printf("\n=== ActivateKey id=%s ===\n", k.Id)
-		_, err = keyStub.ActivateKey(ctx, &keys.ActivateKeyRequest{Id: k.Id, TenantId: tenantID})
+	if k.GetLifeCycleState() != "active" {
+		fmt.Printf("\n=== ActivateKey id=%s ===\n", k.GetId())
+		_, err = keyStub.ActivateKey(ctx, &keys.ActivateKeyRequest{Id: k.GetId(), TenantId: tenantID})
 		if err != nil {
 			fmt.Printf("ActivateKey error: %v\n", err)
 		} else {

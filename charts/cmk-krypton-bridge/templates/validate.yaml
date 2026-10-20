@@ -1,0 +1,16 @@
+{{- /*
+Values of chart 0.1.0 that were renamed, and value combinations the templates cannot render
+correctly. Renders nothing.
+*/}}
+{{- if or (hasKey .Values.database "secretName") (hasKey .Values.database "dsn") }}
+{{- fail "database.secretName and database.dsn were replaced in chart 0.2.0: set database.existingSecret to the Secret with the connection string (key database.dsnKey, default DATABASE_DSN)" }}
+{{- end }}
+{{- if hasKey .Values "orbital" }}
+{{- fail "orbital.rabbitmq.secretName was renamed to rabbitmq.existingSecret in chart 0.2.0" }}
+{{- end }}
+{{- if or (hasKey .Values.service "grpcPort") (hasKey .Values.service "httpPort") }}
+{{- fail "service.grpcPort and service.httpPort were replaced in chart 0.2.0 by the port lists service.ports and ports" }}
+{{- end }}
+{{- if and .Values.image.registry (regexMatch "^[^/]+[.:][^/]*/" .Values.image.repository) }}
+{{- fail (printf "image.repository %q contains a registry host, and image.registry is %q: set image.registry to \"\", or remove the host from image.repository" .Values.image.repository .Values.image.registry) }}
+{{- end }}

@@ -1,82 +1,485 @@
+# Default values for the CMK-2-Krypton Bridge chart (cmkkryptonbridge).
+#
+# The bridge connects CMK to Krypton for one region. It receives CMK's key and system tasks
+# from an AMQP queue (config.orbital), creates the matching key hierarchies in the Krypton root
+# node (config.kryptonClient), keeps its jobs in PostgreSQL, registers the tenants and systems
+# in the CMK Registry (config.registry) and answers CMK on an AMQP exchange. Its gRPC port
+# (9092) serves an API to create key hierarchies directly (`cmk2kryptonctl`); its HTTP port
+# (8080) serves the probes.
+#
+# Layout of this file:
+#   1. Names and labels
+#   2. Workload: replicas, image, pod and container settings, probes, resources
+#   3. Secrets: the PostgreSQL connection string and the AMQP client certificate
+#   4. Kubernetes API access: service account
+#   5. Networking: service, ports, network policy
+#   6. Extension points: extra containers, volumes and environment variables
+#   7. config: the bridge's configuration, rendered into /etc/cmk-krypton-bridge/config.yaml
+#
+# Overview, upgrade notes and troubleshooting: README.md of this chart.
+#
+# Comments starting with "# --" document a value (helm-docs format).
+
+###############################################################################
+# 1. Names and labels
+###############################################################################
+
+# -- Override the full name of all resources. Default: `<release name>-cmk-krypton-bridge`.
+fullnameOverride: ""
+
+# -- Namespace for all resources. Empty: the namespace of the Helm release.
+namespace: ""
+
+# -- Labels added to every resource of the chart, for example a team or cost center.
+commonLabels: {}
+
+###############################################################################
+# 2. Workload
+###############################################################################
+
+# -- Number of bridge pods. Ignored when `hpa.enabled` is true. The pods share the job table:
+# each job is claimed by one pod (PostgreSQL `SKIP LOCKED`), and each task is delivered to
+# one consumer of the AMQP queue.
 replicaCount: 1
 
-image:
-  repository: ghcr.io/openkcm/images/cmk-krypton-bridge
-  pullPolicy: IfNotPresent
-  tag: ""  # defaults to .Chart.AppVersion
+# -- Number of old ReplicaSets kept for `kubectl rollout undo`.
+revisionHistoryLimit: 10
 
+# -- Deployment update strategy. Empty uses the Kubernetes default
+# (RollingUpdate with 25% maxSurge and 25% maxUnavailable).
+strategy: {}
+
+image:
+  # -- Container registry of the image. Set to "" when `repository` contains the
+  # full image name.
+  registry: ghcr.io/openkcm
+
+  # -- Image repository within `image.registry`. Releases are published as
+  # `ghcr.io/openkcm/images/cmk-krypton-bridge` (linux/amd64 and linux/arm64). The images of
+  # the Publish Demo workflow (amd64 only) are in `cmk-krypton-bridge/images/cmk-krypton-bridge`.
+  repository: images/cmk-krypton-bridge
+
+  # -- Image tag, for example `v0.0.1`. Empty: the chart's appVersion, the release this chart
+  # deploys by default. A demo image, such as `demo-e784835`, also needs the demo
+  # `image.repository`.
+  tag: ""
+
+  # -- Image digest, for example `sha256:0e07…`. Takes precedence over `image.tag`.
+  # Use a digest for reproducible deployments.
+  digest: ""
+
+  # -- Kubernetes image pull policy: `IfNotPresent`, `Always` or `Never`.
+  pullPolicy: IfNotPresent
+
+  # -- Override the container command, as a list or a single string. Empty uses the image's
+  # command (`/cmk-krypton-bridge`).
+  command: []
+
+  # -- Additional arguments. The chart always passes
+  # `--config=/etc/cmk-krypton-bridge/config.yaml`, the bridge's only command-line flag.
+  args: []
+
+# -- Secrets with credentials for pulling the image from a private registry.
+# Example: `[{ name: ghcr-pull-secret }]`
 imagePullSecrets: []
 
-service:
-  grpcPort: 9092
-  httpPort: 8080
+pod:
+  # -- Annotations for the pods, for example for a service mesh
+  # (`linkerd.io/inject: enabled`). The chart always adds `checksum/config`, which
+  # restarts the pods when the configuration changes.
+  annotations: {}
 
-config:
-  grpcServer:
-    address: ":9092"
-  kryptonClient:
-    address: "krypton-root.services.svc.cluster.local:8080"
-    mockMode: false
-    secretRef:
-      type: insecure
-  orbital:
-    enabled: true
-    amqp:
-      url: "amqps://kms-rabbitmqcluster.services.svc.cluster.local:5671"
-      target: "/exchanges/cmk/cf-eu10.krypton-bridge.replies"
-      source: "/queues/krypton-bridge.cf-eu10.requests"
-      auth:
-        type: mtls
-        mtls:
-          certFile: /etc/credentials/rabbitmq/tls.crt
-          keyFile:  /etc/credentials/rabbitmq/tls.key
-          caFile:   /etc/credentials/rabbitmq/ca.crt
-  keyHierarchy:
-    maxDepth: 4
-  database:
-    dsn: ""  # set via secret / env override
-  worker:
-    concurrency: 3
-    pollInterval: 500ms
-    maxAttempts: 10
-    stuckTimeout: 5m
-  registry:
-    enabled: true
-    address: "registry.services.svc.cluster.local:9092"
-    insecure: true
-    region: "cf-eu10"
-    ownerId: ""
-    ownerType: "ownerType1"
-    role: "ROLE_TRIAL"
+  # -- Additional labels for the pods.
+  labels: {}
 
-# Database DSN injected via env var — set this to a k8s secret reference
-database:
-  secretName: ""       # name of secret containing DATABASE_DSN key
-  dsn: ""              # inline DSN (only for dev — prefer secretName)
+  # -- Pod security context. The defaults run the bridge as user and group 65532 (`nonroot`
+  # of the distroless image), give that group access to the mounted volumes (`fsGroup`) and
+  # use the runtime's default seccomp profile. `runAsUser` is needed with `runAsNonRoot`:
+  # the image's user is a name (`USER nonroot:nonroot`), which the kubelet cannot check.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
 
-# RabbitMQ TLS credentials secret (must contain tls.crt, tls.key, ca.crt)
-orbital:
-  rabbitmq:
-    secretName: ""     # e.g. cmk-krypton-bridge-rabbitmq-tls
+  # -- Inject environment variables for the Services of the namespace
+  # (`<SERVICE>_PORT`, …). The bridge does not use them.
+  enableServiceLinks: false
 
+  # -- PriorityClass of the pods. Empty: the cluster default.
+  priorityClassName: ""
+
+  # -- Seconds the pod has to shut down after SIGTERM. Null: the Kubernetes default (30).
+  terminationGracePeriodSeconds: null
+
+  disruptionBudget:
+    # -- Create a PodDisruptionBudget, which limits how many pods voluntary
+    # disruptions such as node drains may take down at once.
+    enabled: false
+    # -- Minimum number (for example `1`) or percentage (for example `50%`) of pods
+    # that must stay available. Do not set together with `maxUnavailable`.
+    # minAvailable: 1
+    # -- Maximum number or percentage of pods that may be unavailable. Default
+    # when neither value is set: `1`.
+    # maxUnavailable: 1
+
+  # -- Node labels the pods must be scheduled on. The demo images are built for amd64 only:
+  # `{ kubernetes.io/arch: amd64 }` on clusters with other nodes.
+  nodeSelector: {}
+
+  # -- Affinity rules, for example to spread pods across nodes.
+  affinity: {}
+
+  # -- Topology spread constraints, for example across zones:
+  #   - maxSkew: 1
+  #     topologyKey: topology.kubernetes.io/zone
+  #     whenUnsatisfiable: ScheduleAnyway
+  #     labelSelector:
+  #       matchLabels: { app.kubernetes.io/name: cmk-krypton-bridge }
+  topologySpreadConstraints: []
+
+  # -- Tolerations for node taints.
+  tolerations: []
+
+# -- Container security context. The defaults forbid privilege escalation, drop all Linux
+# capabilities and make the root filesystem read-only; `/tmp` is a writable emptyDir (see
+# `tmpVolume`).
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+tmpVolume:
+  # -- Mount a writable emptyDir at `/tmp`. Needed with a read-only root filesystem.
+  enabled: true
+  # -- Size limit of the `/tmp` volume.
+  sizeLimit: 64Mi
+
+# -- CPU, memory and ephemeral storage of the bridge container. Requests are needed for the
+# autoscaler (`hpa`). The ephemeral-storage limit covers the container's logs and the `/tmp`
+# volume (`tmpVolume.sizeLimit`); a pod that exceeds it is evicted.
 resources:
-  limits:
-    cpu: 500m
-    memory: 256Mi
   requests:
     cpu: 50m
     memory: 64Mi
+    ephemeral-storage: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+    ephemeral-storage: 256Mi
 
+# -- Startup probe: the bridge migrates its database before it opens its ports, so it gets up
+# to 120 seconds to start.
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 2
+  failureThreshold: 60
+
+# -- Liveness probe: restarts the container when the process no longer responds.
 livenessProbe:
   httpGet:
     path: /healthz
-    port: 8080
-  initialDelaySeconds: 10
+    port: http
   periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
 
+# -- Readiness probe. `/readyz` checks the connection to Krypton (`config.kryptonClient`):
+# while Krypton is not reachable, the pod is not ready.
 readinessProbe:
   httpGet:
     path: /readyz
-    port: 8080
-  initialDelaySeconds: 5
+    port: http
   periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+
+hpa:
+  # -- Create a HorizontalPodAutoscaler. Replaces `replicaCount`. Needs
+  # `resources.requests` for the metrics used.
+  enabled: false
+  # -- Minimum number of pods.
+  minReplicas: 1
+  # -- Maximum number of pods.
+  maxReplicas: 3
+  # -- Target average CPU utilization in percent of the request. Null disables the
+  # CPU metric.
+  targetCPUUtilizationPercentage: 80
+  # -- Target average memory utilization in percent of the request. Null disables
+  # the memory metric.
+  targetMemoryUtilizationPercentage: 80
+  # -- Scaling behavior (stabilization windows and policies) of the autoscaler.
+  behavior: {}
+
+###############################################################################
+# 3. Secrets
+#
+# Create the Secrets before the installation, for example:
+#   kubectl -n services create secret generic cmk-krypton-bridge-db \
+#     --from-literal=DATABASE_DSN='postgres://bridge:<password>@postgresql.services:5432/cmk_krypton_bridge?sslmode=verify-full'
+#   kubectl -n services create secret generic cmk-krypton-bridge-rabbitmq-tls \
+#     --from-file=tls.crt=bridge.crt --from-file=tls.key=bridge.key --from-file=ca.crt=rabbitmq-ca.crt
+###############################################################################
+
+database:
+  # -- Secret that holds the PostgreSQL connection string. The chart passes it to the bridge
+  # as `KRYPTON_PROXY_DATABASE_DSN`, which sets `config.database.dsn`. **Required**, unless
+  # `config.kryptonClient.mockMode` is true or the variable is set in `extraEnvs` or
+  # `extraEnvsFrom`. The string has the form
+  # `postgres://<user>:<password>@<host>:<port>/<database>?sslmode=<mode>`; use
+  # `sslmode=verify-full` outside development. The bridge creates its tables at startup, so
+  # the user needs to own the database or have CREATE on its schema.
+  existingSecret: ""
+  # -- Key of the connection string in `database.existingSecret`.
+  dsnKey: DATABASE_DSN
+
+rabbitmq:
+  # -- Secret with the client certificate of the bridge for the AMQP broker (`tls.crt`,
+  # `tls.key`, `ca.crt`, see `extraVolumes` for the formats), mounted at
+  # `/etc/credentials/rabbitmq`, where `config.orbital.amqp.auth.mtls` reads them. Required
+  # with `config.orbital.amqp.auth.type: mtls`, the default.
+  existingSecret: ""
+
+###############################################################################
+# 4. Kubernetes API access
+###############################################################################
+
+serviceAccount:
+  # -- Create a ServiceAccount for the bridge. If false, `serviceAccount.name`
+  # (or `default`) must exist.
+  create: true
+  # -- Mount the ServiceAccount token into the pods. The bridge does not call the
+  # Kubernetes API.
+  automount: false
+  # -- Annotations for the ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount. Empty with `create: true`: the chart's full name.
+  name: ""
+
+###############################################################################
+# 5. Networking
+###############################################################################
+
+service:
+  # -- Additional labels for the Service.
+  labels: {}
+  # -- Annotations for the Service.
+  annotations: {}
+  # -- Service type. Keep `ClusterIP`: the gRPC API has no authentication.
+  type: ClusterIP
+  # -- Ports of the Service. The first port is shown in the release notes.
+  ports:
+    - name: grpc
+      protocol: TCP
+      port: 9092
+      targetPort: grpc
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: http
+
+# -- Ports of the bridge container. The gRPC port must match `config.grpcServer.address`; the
+# HTTP port (probes) is always 8080. The probes and the network policy refer to them by name.
+ports:
+  - name: grpc
+    containerPort: 9092
+    protocol: TCP
+  - name: http
+    containerPort: 8080
+    protocol: TCP
+
+networkPolicy:
+  # -- Create a NetworkPolicy for the bridge pods. When enabled, only the peers listed below
+  # can reach the pods; everything else is denied. Outgoing traffic (PostgreSQL, the AMQP
+  # broker, Krypton, the Registry) is not restricted.
+  enabled: false
+  grpc:
+    # -- Peers allowed to call the gRPC API (port `grpc`), for example the pods that run
+    # `cmk2kryptonctl`. NetworkPolicy peer syntax, for example:
+    #   - namespaceSelector:
+    #       matchLabels: { kubernetes.io/metadata.name: services }
+    #     podSelector:
+    #       matchLabels: { app.kubernetes.io/name: kms-admin }
+    # Empty: no peer can reach the gRPC API.
+    from: []
+  http:
+    # -- Peers allowed to reach the health endpoints (port `http`). Kubelet probes are usually
+    # not affected.
+    from: []
+  # -- Additional ingress rules, in NetworkPolicy syntax.
+  extraIngress: []
+
+###############################################################################
+# 6. Extension points
+###############################################################################
+
+# -- Init containers added to the pod.
+extraInitContainers: []
+
+# -- Containers added to the pod, after the bridge container.
+extraContainers: []
+
+# -- Volumes added to the pod. Besides its configuration, the bridge reads the TLS files that
+# `config` names: the AMQP client certificate (`rabbitmq.existingSecret`), and the files of
+# `config.kryptonClient.secretRef` and `config.registry` for mutual TLS. They are PEM files:
+#   tls.crt   the certificate, then the intermediate CAs that issued it, if any:
+#               -----BEGIN CERTIFICATE-----
+#               MIIB…                                (client certificate of the bridge)
+#               -----END CERTIFICATE-----
+#   tls.key   the private key of that certificate, unencrypted:
+#               -----BEGIN PRIVATE KEY-----          (PKCS #8: RSA, ECDSA or Ed25519 key)
+#               MIIE…
+#               -----END PRIVATE KEY-----
+#   ca.crt    one or more CA certificates, each a CERTIFICATE block as above
+# A Secret of type kubernetes.io/tls with an added ca.crt has these keys. The pods run with
+# group 65532 (`pod.securityContext.fsGroup`), so the files are readable with mode 0440.
+# Example of a volume for mutual TLS with the Registry:
+#   - name: registry-tls
+#     secret: { secretName: cmk-krypton-bridge-registry-tls, defaultMode: 0440 }
+extraVolumes: []
+
+# -- Volume mounts added to the bridge container. Mount Secrets read-only. Do not mount
+# anything at `/etc/cmk-krypton-bridge/config.yaml` or `/etc/credentials/rabbitmq`. Example of
+# the mount for the volume above:
+#   - name: registry-tls
+#     mountPath: /etc/credentials/registry
+#     readOnly: true
+extraVolumeMounts: []
+
+# -- Environment variables added to the bridge container. The bridge reads every setting of
+# `config` also from a variable `KRYPTON_PROXY_<KEY>`, the key in upper case with `_` for
+# `.`, for example `KRYPTON_PROXY_ORBITAL_AMQP_AUTH_BASIC_PASSWORD` for
+# `config.orbital.amqp.auth.basic.password`. A variable takes effect only if the key is in
+# `config` (with an empty value for secrets) or has a built-in default. Use it for secrets:
+#   - name: KRYPTON_PROXY_REGISTRY_BEARERTOKEN
+#     valueFrom:
+#       secretKeyRef: { name: cmk-krypton-bridge-registry, key: token }
+extraEnvs: []
+
+# -- Sources of environment variables (ConfigMaps or Secrets) for the container.
+extraEnvsFrom: []
+
+###############################################################################
+# 7. Bridge configuration
+#
+# Everything under `config` except `isImmutable` is written to
+# /etc/cmk-krypton-bridge/config.yaml. The bridge reads it at startup and ignores keys it does
+# not know, so check the spelling of the keys below. Settings that are not set use the
+# bridge's built-in default, named "Default:" below where it differs from the chart's value.
+###############################################################################
+
+config:
+  # -- Make the configuration ConfigMap immutable. Chart setting, not written into
+  # config.yaml. An immutable ConfigMap cannot change, so an upgrade that changes the
+  # configuration fails with `field is immutable`: delete the ConfigMap
+  # (`<full name>-config`) before such an upgrade. Keep it false unless you need it.
+  isImmutable: false
+
+  application:
+    # -- Name of the application, in the logs.
+    name: cmk-krypton-bridge
+
+  logger:
+    # -- Log level: `debug`, `info`, `warn` or `error`. The bridge logs JSON; with `debug` it
+    # logs text instead.
+    level: info
+    # -- Read, but not used yet: the format follows `level`.
+    format: json
+
+  grpcServer:
+    # -- Listen address of the gRPC API (`host:port`). Plaintext, without authentication:
+    # restrict its callers with `networkPolicy` or a service mesh. Keep the port in `ports`.
+    address: ":9092"
+
+  # -- Connection to the gRPC API of the Krypton root node: `address` (`host:port`) and
+  # `secretRef`. `secretRef.type` is `insecure` (plaintext, inside a service mesh with mutual
+  # TLS, or a root node without `config.auth`), `tls` (TLS with the system CAs, for example
+  # through a gateway) or `mtls` (client certificate, for a root node with `config.auth`):
+  #   secretRef:
+  #     type: mtls
+  #     mtls:
+  #       cert: { source: file, file: { path: /etc/credentials/krypton/tls.crt } }
+  #       certKey: { source: file, file: { path: /etc/credentials/krypton/tls.key } }
+  #       serverCa: { source: file, file: { path: /etc/credentials/krypton/ca.crt } }
+  kryptonClient:
+    # -- Address of the Krypton root node: its Service, `krypton-root.<namespace>.svc:8080`
+    # with the krypton-root chart.
+    address: "krypton-root.services.svc.cluster.local:8080"
+    # -- Use an in-memory Krypton and an in-memory job store instead of Krypton and
+    # PostgreSQL. Development only. Default of the bridge: true.
+    mockMode: false
+    secretRef:
+      type: insecure
+
+  orbital:
+    # -- Receive CMK's tasks over AMQP. Default of the bridge: false.
+    enabled: true
+    amqp:
+      # -- URL of the AMQP 1.0 broker, `amqps://<host>:5671`.
+      url: "amqps://kms-rabbitmqcluster.services.svc.cluster.local:5671"
+      # -- Exchange the bridge sends its answers to. CMK reads them from a queue bound to it:
+      # `/exchanges/cmk/<region>.krypton-bridge.replies`.
+      target: "/exchanges/cmk/cf-eu10.krypton-bridge.replies"
+      # -- Queue the bridge receives the tasks of its region from:
+      # `/queues/krypton-bridge.<region>.requests`. It must exist on the broker.
+      source: "/queues/krypton-bridge.cf-eu10.requests"
+      auth:
+        # -- Authentication at the broker: `mtls` (client certificate, SASL EXTERNAL),
+        # `basic` (`username` and `password`, from `KRYPTON_PROXY_ORBITAL_AMQP_AUTH_BASIC_PASSWORD`
+        # in `extraEnvs`) or `anonymous`.
+        type: mtls
+        mtls:
+          # -- Client certificate of the bridge (`rabbitmq.existingSecret`).
+          certFile: /etc/credentials/rabbitmq/tls.crt
+          # -- Private key of the client certificate.
+          keyFile: /etc/credentials/rabbitmq/tls.key
+          # -- CA certificates of the broker's server certificate.
+          caFile: /etc/credentials/rabbitmq/ca.crt
+
+  keyHierarchy:
+    # -- Maximum depth of a key hierarchy. Read, but not used yet.
+    maxDepth: 4
+
+  database:
+    # -- PostgreSQL connection string. Leave it empty: the chart sets it from
+    # `database.existingSecret`. A value here would be stored in plain text in the ConfigMap.
+    dsn: ""
+
+  worker:
+    # -- Number of jobs a pod processes at the same time.
+    concurrency: 3
+    # -- How often an idle worker looks for new jobs.
+    pollInterval: 500ms
+    # -- Read, but not used yet: each job carries its own maximum number of attempts.
+    maxAttempts: 10
+    # -- A job in progress for longer than this is considered stuck and is retried.
+    stuckTimeout: 5m
+
+  registry:
+    # -- Register the tenants and systems of the created keys in the CMK Registry. A failed
+    # registration is logged; the key stays created. Default of the bridge: false.
+    enabled: true
+    # -- Address of the Registry's gRPC API (`host:port`).
+    address: "registry.services.svc.cluster.local:9092"
+    # -- Plaintext connection, inside a service mesh with mutual TLS. The Registry's gRPC
+    # server has no TLS of its own. For a connection through a TLS-terminating proxy, set it to
+    # false and set `caCert`, and `clientCert` and `clientKey` for mutual TLS (file paths, see
+    # `extraVolumes`).
+    insecure: true
+    # -- Region of the tenants and systems, as the Registry and CMK name it.
+    region: "cf-eu10"
+    # -- Owner of the tenants that the bridge registers. **Required** by the Registry.
+    ownerId: ""
+    # -- Type of the owner.
+    ownerType: "ownerType1"
+    # -- Type of the systems that the bridge registers. **Required** by the Registry, and
+    # must be a system type the Registry accepts.
+    systemType: ""
+    # -- Role of the registered tenants, for example `ROLE_TRIAL`.
+    role: "ROLE_TRIAL"

@@ -1,44 +1,13 @@
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "cmk-krypton-bridge.fullname" . }}
+  name: {{ include "cmk-krypton-bridge.fullname" . }}-config
+  namespace: {{ include "cmk-krypton-bridge.namespace" . }}
   labels:
     {{- include "cmk-krypton-bridge.labels" . | nindent 4 }}
+immutable: {{ .Values.config.isImmutable | default false }}
 data:
-  config.yaml: |
-    grpcServer:
-      address: {{ .Values.config.grpcServer.address | quote }}
-    kryptonClient:
-      address: {{ .Values.config.kryptonClient.address | quote }}
-      mockMode: {{ .Values.config.kryptonClient.mockMode }}
-      secretRef:
-        type: {{ .Values.config.kryptonClient.secretRef.type }}
-    orbital:
-      enabled: {{ .Values.config.orbital.enabled }}
-      amqp:
-        url: {{ .Values.config.orbital.amqp.url | quote }}
-        target: {{ .Values.config.orbital.amqp.target | quote }}
-        source: {{ .Values.config.orbital.amqp.source | quote }}
-        auth:
-          type: {{ .Values.config.orbital.amqp.auth.type | quote }}
-          {{- if eq .Values.config.orbital.amqp.auth.type "mtls" }}
-          mtls:
-            certFile: {{ .Values.config.orbital.amqp.auth.mtls.certFile | quote }}
-            keyFile: {{ .Values.config.orbital.amqp.auth.mtls.keyFile | quote }}
-            caFile: {{ .Values.config.orbital.amqp.auth.mtls.caFile | quote }}
-          {{- end }}
-    keyHierarchy:
-      maxDepth: {{ .Values.config.keyHierarchy.maxDepth }}
-    worker:
-      concurrency: {{ .Values.config.worker.concurrency }}
-      pollInterval: {{ .Values.config.worker.pollInterval }}
-      maxAttempts: {{ .Values.config.worker.maxAttempts }}
-      stuckTimeout: {{ .Values.config.worker.stuckTimeout }}
-    registry:
-      enabled: {{ .Values.config.registry.enabled }}
-      address: {{ .Values.config.registry.address | quote }}
-      insecure: {{ .Values.config.registry.insecure }}
-      region: {{ .Values.config.registry.region | quote }}
-      ownerId: {{ .Values.config.registry.ownerId | quote }}
-      ownerType: {{ .Values.config.registry.ownerType | quote }}
-      role: {{ .Values.config.registry.role | quote }}
+  # Everything under config except the chart setting isImmutable.
+  config.yaml: |-
+    {{- toYaml (omit .Values.config "isImmutable") | nindent 4 }}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -64,7 +65,7 @@ func listKeysCmd() *cobra.Command {
 		Short: "List all keys for a tenant",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if tenantID == "" {
-				return fmt.Errorf("--tenant-id is required")
+				return errors.New("--tenant-id is required")
 			}
 			client, conn, err := newClient()
 			if err != nil {
@@ -89,7 +90,7 @@ func ensureHierarchyCmd() *cobra.Command {
 		Short: "Enqueue a key hierarchy job for a tenant/service",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if tenantID == "" {
-				return fmt.Errorf("--tenant-id is required")
+				return errors.New("--tenant-id is required")
 			}
 			var lvl rpcv1.KeyLevel
 			switch level {
@@ -100,7 +101,7 @@ func ensureHierarchyCmd() *cobra.Command {
 			case "L4":
 				lvl = rpcv1.KeyLevel_KEY_LEVEL_L4
 			default:
-				return fmt.Errorf("--level must be L2, L3 or L4")
+				return errors.New("--level must be L2, L3 or L4")
 			}
 			client, conn, err := newClient()
 			if err != nil {
@@ -131,7 +132,7 @@ func getJobStatusCmd() *cobra.Command {
 		Short: "Poll the status of a key hierarchy job",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if jobID == "" {
-				return fmt.Errorf("--job-id is required")
+				return errors.New("--job-id is required")
 			}
 			client, conn, err := newClient()
 			if err != nil {
@@ -158,7 +159,7 @@ func watchJobCmd() *cobra.Command {
 		Short: "Poll a job until it reaches DONE or FAILED",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if jobID == "" {
-				return fmt.Errorf("--job-id is required")
+				return errors.New("--job-id is required")
 			}
 			client, conn, err := newClient()
 			if err != nil {
@@ -176,20 +177,20 @@ func watchJobCmd() *cobra.Command {
 				}
 
 				fmt.Printf("[%s] status: %s  attempts: %d\n",
-					time.Now().Format("15:04:05"), resp.Status, resp.Attempts)
+					time.Now().Format("15:04:05"), resp.GetStatus(), resp.GetAttempts())
 
-				switch resp.Status {
+				switch resp.GetStatus() {
 				case rpcv1.JobStatus_JOB_STATUS_DONE:
 					fmt.Println()
 					return printProto(resp)
 				case rpcv1.JobStatus_JOB_STATUS_FAILED:
 					fmt.Println()
 					printProto(resp) //nolint:errcheck
-					return fmt.Errorf("job failed: %s", resp.Error)
+					return fmt.Errorf("job failed: %s", resp.GetError())
 				}
 
 				if time.Now().After(deadline) {
-					return fmt.Errorf("timeout after %ds — last status: %s", timeoutSec, resp.Status)
+					return fmt.Errorf("timeout after %ds — last status: %s", timeoutSec, resp.GetStatus())
 				}
 				time.Sleep(interval)
 			}

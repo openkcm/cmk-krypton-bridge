@@ -16,18 +16,23 @@ import (
 	"log"
 	"os"
 	"time"
-
 	"uuid"
 
+	"github.com/openkcm/orbital"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/openkcm/orbital"
+	taskv1 "github.com/openkcm/api-sdk/proto/kms/api/cmk/eventprocessor/task/v1"
 	orbitalamqp "github.com/openkcm/orbital/client/amqp"
 	orbitalcodec "github.com/openkcm/orbital/codec"
 
-	taskv1 "github.com/openkcm/api-sdk/proto/kms/api/cmk/eventprocessor/task/v1"
-
 	eventprocessor "github.com/openkcm/cmk-krypton-bridge/internal/event-processor"
+)
+
+const (
+	// demoRegion is the CMK and system region of all tasks.
+	demoRegion = "cf-eu10"
+	// statusDone is the status of a task the Bridge completed.
+	statusDone = "DONE"
 )
 
 // taskCase describes one test scenario.
@@ -71,7 +76,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("ERROR connect AMQP: %v", err)
 	}
-	defer client.Close(ctx) //nolint:errcheck
+	defer client.Close(ctx)
 
 	// ── build test cases ──────────────────────────────────────────────────────
 	sysAction := func(keyFrom, keyTo string) *taskv1.Data {
@@ -79,7 +84,7 @@ func main() {
 			Data: &taskv1.Data_SystemAction{
 				SystemAction: &taskv1.SystemAction{
 					SystemId:        *systemID,
-					SystemRegion:    "cf-eu10",
+					SystemRegion:    demoRegion,
 					SystemType:      "krypton",
 					KeyIdFrom:       keyFrom,
 					KeyIdTo:         keyTo,
@@ -87,7 +92,7 @@ func main() {
 					TenantId:        *tenantID,
 					TenantOwnerId:   "demo-owner",
 					TenantOwnerType: "ownerType1",
-					CmkRegion:       "cf-eu10",
+					CmkRegion:       demoRegion,
 				},
 			},
 		}
@@ -98,7 +103,7 @@ func main() {
 				KeyAction: &taskv1.KeyAction{
 					KeyId:     *keyID,
 					TenantId:  *tenantID,
-					CmkRegion: "cf-eu10",
+					CmkRegion: demoRegion,
 				},
 			},
 		}
@@ -185,18 +190,18 @@ func main() {
 			continue
 		}
 
-		if resp.Status == "DONE" {
+		if resp.Status == statusDone {
 			fmt.Printf("DONE  ✓  (%s)\n", took.Round(time.Millisecond))
 		} else {
 			fmt.Printf("%-6s ✗  (%s)  %s\n", resp.Status, took.Round(time.Millisecond), resp.ErrorMessage)
 		}
-		results = append(results, result{tc.name, string(resp.Status), resp.ErrorMessage, took})
+		results = append(results, result{tc.name, resp.Status, resp.ErrorMessage, took})
 	}
 
 	// ── summary ───────────────────────────────────────────────────────────────
 	passed, failed := 0, 0
 	for _, r := range results {
-		if r.status == "DONE" {
+		if r.status == statusDone {
 			passed++
 		} else {
 			failed++
@@ -216,7 +221,7 @@ func main() {
 	if failed > 0 {
 		fmt.Println()
 		for _, r := range results {
-			if r.status != "DONE" {
+			if r.status != statusDone {
 				fmt.Printf("  FAIL %s: %s\n", r.name, r.err)
 			}
 		}

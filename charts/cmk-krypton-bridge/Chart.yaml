@@ -1,6 +1,23 @@
 apiVersion: v2
-name: cmkkryptonbridge
-description: CmkKryptonBridge — Key Hierarchy Orchestration Service
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+name: cmkkryptonbridge
+description: >-
+  CMK-2-Krypton Bridge: receives the key and system tasks of CMK for a region over AMQP,
+  creates the matching key hierarchies in Krypton and registers the systems in the CMK
+  Registry.
+home: https://github.com/openkcm/cmk-krypton-bridge
+sources:
+  - https://github.com/openkcm/cmk-krypton-bridge
+keywords:
+  - openkcm
+  - cmk
+  - krypton
+  - key-management
+# Version of the chart. Increment it for every change to the chart.
+# Versions follow Semantic Versioning (https://semver.org/).
+version: 0.2.0
+# Bridge release this chart deploys by default: the tag of its image (default of image.tag).
+# release-please updates it in each release pull request (marker on the line). Increase
+# `version` in the same pull request, otherwise the chart release workflow skips the
+# already-published chart version.
+appVersion: "v0.0.1" # x-release-please-version

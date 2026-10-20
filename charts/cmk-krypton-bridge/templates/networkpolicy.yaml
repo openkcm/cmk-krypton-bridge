@@ -1,0 +1,37 @@
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cmk-krypton-bridge.fullname" . }}
+  namespace: {{ include "cmk-krypton-bridge.namespace" . }}
+  labels:
+    {{- include "cmk-krypton-bridge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cmk-krypton-bridge.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- with .Values.networkPolicy.grpc.from }}
+    # gRPC API: only the listed callers.
+    - ports:
+        - port: grpc
+          protocol: TCP
+      from:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.networkPolicy.http.from }}
+    # Health endpoints. Probes from the kubelet are not affected by NetworkPolicies on most
+    # network plugins.
+    - ports:
+        - port: http
+          protocol: TCP
+      from:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

@@ -1,4 +1,4 @@
-.PHONY: all build demo-build test test-integration lint proto docker helm-package run tidy buf-init \
+.PHONY: all build demo-build test test-integration helm-test lint proto docker helm-package run tidy buf-init \
         demo demo-mock demo-async demo-async-mock \
         demo-health demo-ensure-l2 demo-ensure-l3 demo-ensure-l4 \
         demo-idempotency demo-list-keys demo-new-tenant \
@@ -37,7 +37,7 @@ proto:
 	buf generate
 
 build:
-	go build -o $(BINARY_PROXY)        ./cmd/proxy
+	go build -o $(BINARY_PROXY)        ./cmd/cmk-krypton-bridge
 	go build -o $(BINARY_CLI)          ./cmd/cli
 
 demo-build: build
@@ -55,13 +55,18 @@ test:
 test-integration:
 	go test -tags integration -race ./...
 
+# Helm chart unit tests: render charts/cmk-krypton-bridge with `helm template` and load the
+# configuration with the bridge's own code. Needs the helm command, no cluster.
+helm-test:
+	go test -count=1 -race -tags=helmtests ./helm-tests/unit/...
+
 lint:
 	golangci-lint run ./...
 
 # ── run ───────────────────────────────────────────────────────────────────────
 
 run:
-	GRPC_ENFORCE_ALPN_ENABLED=false go run ./cmd/proxy --config=config.yaml
+	GRPC_ENFORCE_ALPN_ENABLED=false go run ./cmd/cmk-krypton-bridge --config=config.yaml
 
 # ── database ──────────────────────────────────────────────────────────────────
 

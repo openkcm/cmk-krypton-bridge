@@ -10,6 +10,9 @@ includes:
     excludes: [] # put task names in here which are overwritten in this file
     vars:
       LINTER_VERSION: v2.13.1
-      CODE_DIRS: "{{.ROOT_DIR}}/cmd/..."
-      COMPONENTS: 'bridge cli'
+      CODE_DIRS: "{{.ROOT_DIR}}/cmd/... {{.ROOT_DIR}}/db/... {{.ROOT_DIR}}/internal/... {{.ROOT_DIR}}/pkg/..."
+      COMPONENTS: 'cmk-krypton-bridge'
+      CHART_COMPONENTS: 'cmk-krypton-bridge'
       SKIP_VALIDATION_TESTS: 'true'
+
+      CLI_COMPONENTS: './cmd/cli:cmk2kryptonctl'

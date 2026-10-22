@@ -25,7 +25,8 @@ type Config struct {
 // KryptonClientConfig configures the connection to the Krypton backend.
 type KryptonClientConfig struct {
 	commoncfg.GRPCClient `yaml:",inline" mapstructure:",squash"`
-	MockMode             bool `yaml:"mockMode" mapstructure:"mockMode"`
+
+	MockMode bool `yaml:"mockMode" mapstructure:"mockMode"`
 }
 
 // OrbitalConfig configures the orbital AMQP operator.

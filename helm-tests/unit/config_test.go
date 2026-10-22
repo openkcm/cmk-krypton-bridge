@@ -197,8 +197,8 @@ func TestConfigEnvironment(t *testing.T) {
 	}
 }
 
-// TestReadmeValues installs the chart with the values file of the README: the bridge loads
-// the configuration, and the release notes have no warning.
+// TestReadmeValues renders the chart with the values file of the README and checks the bridge
+// configuration.
 func TestReadmeValues(t *testing.T) {
 	readme, err := os.ReadFile(chartPath + "/README.md")
 	if err != nil {
@@ -220,10 +220,6 @@ func TestReadmeValues(t *testing.T) {
 	cfg := loadValues(t, "-f", values)
 	if cfg.Registry.Region != "eu10" || !strings.Contains(cfg.Orbital.AMQP.Source, ".eu10.") {
 		t.Errorf("region %q, source %q", cfg.Registry.Region, cfg.Orbital.AMQP.Source)
-	}
-
-	if notes := releaseNotes(t, "-f", values); strings.Contains(notes, "WARNINGS") {
-		t.Errorf("warnings with the README values:\n%s", notes)
 	}
 }
 

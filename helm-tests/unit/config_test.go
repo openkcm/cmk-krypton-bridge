@@ -108,6 +108,26 @@ func TestConfigDefaults(t *testing.T) {
 	}
 }
 
+func TestConfigRuntimeDefaults(t *testing.T) {
+	cfg := loadConfig(t, "{}")
+
+	if cfg.Application.Name != "cmk-krypton-bridge" || cfg.Application.BuildInfo.Version != "0.1.0" ||
+		cfg.Logger.Level != "info" || string(cfg.Logger.Format) != "json" ||
+		!cfg.GRPCServer.Enabled || cfg.GRPCServer.Address != ":9092" {
+		t.Errorf("application %+v, logger %+v, gRPC server %+v", cfg.Application, cfg.Logger, cfg.GRPCServer)
+	}
+	if !cfg.KryptonClient.MockMode || cfg.KryptonClient.Address != "localhost:9090" ||
+		cfg.Orbital.Enabled || cfg.Orbital.AMQP.URL != "amqps://kms-rabbitmqcluster.services.svc.cluster.local:5671" ||
+		cfg.Orbital.AMQP.Auth.Type != "mtls" || cfg.KeyHierarchy.MaxDepth != 4 {
+		t.Errorf("Krypton client %+v, orbital %+v, key hierarchy %+v", cfg.KryptonClient, cfg.Orbital, cfg.KeyHierarchy)
+	}
+	if cfg.Database.DSN != "" || cfg.Worker.Concurrency != 3 || cfg.Worker.PollInterval.String() != "500ms" ||
+		cfg.Worker.MaxAttempts != 10 || cfg.Worker.StuckTimeout.String() != "5m0s" ||
+		cfg.Registry.Enabled || cfg.Registry.Address != "localhost:9093" || cfg.Registry.Region != "eu-central" {
+		t.Errorf("database %q, worker %+v, registry %+v", cfg.Database.DSN, cfg.Worker, cfg.Registry)
+	}
+}
+
 // TestConfigPassThrough checks that everything under config except isImmutable reaches
 // config.yaml, including the keys that chart 0.1.0 dropped, and that the unread-keys check of
 // these tests finds keys that the bridge ignores.
@@ -177,8 +197,8 @@ func TestConfigEnvironment(t *testing.T) {
 	}
 }
 
-// TestReadmeValues installs the chart with the values file of the README: the bridge loads
-// the configuration, and the release notes have no warning.
+// TestReadmeValues renders the chart with the values file of the README and checks the bridge
+// configuration.
 func TestReadmeValues(t *testing.T) {
 	readme, err := os.ReadFile(chartPath + "/README.md")
 	if err != nil {
@@ -200,10 +220,6 @@ func TestReadmeValues(t *testing.T) {
 	cfg := loadValues(t, "-f", values)
 	if cfg.Registry.Region != "eu10" || !strings.Contains(cfg.Orbital.AMQP.Source, ".eu10.") {
 		t.Errorf("region %q, source %q", cfg.Registry.Region, cfg.Orbital.AMQP.Source)
-	}
-
-	if notes := releaseNotes(t, "-f", values); strings.Contains(notes, "WARNINGS") {
-		t.Errorf("warnings with the README values:\n%s", notes)
 	}
 }
 

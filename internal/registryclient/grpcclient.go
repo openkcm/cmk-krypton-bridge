@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,10 +17,10 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	typespb "github.com/openkcm/api-sdk/proto/kms/api/cmk/types/v1"
 	mappingpb "github.com/openkcm/api-sdk/proto/kms/api/cmk/registry/mapping/v1"
 	systempb "github.com/openkcm/api-sdk/proto/kms/api/cmk/registry/system/v1"
 	tenantpb "github.com/openkcm/api-sdk/proto/kms/api/cmk/registry/tenant/v1"
+	typespb "github.com/openkcm/api-sdk/proto/kms/api/cmk/types/v1"
 )
 
 // GRPCClientOptions configures the registry gRPC connection.
@@ -96,7 +97,7 @@ func buildDialOptions(opts GRPCClientOptions) ([]grpc.DialOption, error) {
 	// mTLS: client cert + key.
 	if opts.ClientCert != "" || opts.ClientKey != "" {
 		if opts.ClientCert == "" || opts.ClientKey == "" {
-			return nil, fmt.Errorf("mTLS requires both clientCert and clientKey")
+			return nil, errors.New("mTLS requires both clientCert and clientKey")
 		}
 		cert, err := tls.LoadX509KeyPair(opts.ClientCert, opts.ClientKey)
 		if err != nil {

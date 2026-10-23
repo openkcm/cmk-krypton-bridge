@@ -4,12 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/openkcm/orbital"
 )
-
-const reconcileAfterError = 15 * time.Second
 
 var (
 	ErrInvalidJobType     = errors.New("invalid job type")
@@ -32,11 +29,4 @@ func setErrorStateAndFail(ctx context.Context, resp *orbital.HandlerResponse, er
 	slog.ErrorContext(ctx, "orbital: task failed, ending processing", slog.String("error", err.Error()), slog.String("state", state))
 	setWorkingState(ctx, resp, err, state)
 	resp.Fail(err.Error())
-}
-
-// setErrorStateAndContinue mirrors CMK's setErrorStateAndContinue.
-func setErrorStateAndContinue(ctx context.Context, resp *orbital.HandlerResponse, err error, state string) {
-	slog.ErrorContext(ctx, "orbital: task failed, will retry", slog.String("error", err.Error()), slog.String("state", state))
-	setWorkingState(ctx, resp, err, state)
-	resp.ContinueAndWaitFor(reconcileAfterError)
 }

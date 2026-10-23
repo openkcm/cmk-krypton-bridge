@@ -19,6 +19,8 @@ const (
 	KindL2 = "K0" // tenant root (root kind, no parent)
 	KindL3 = "K1" // service key (KEK, parent=K0)
 	KindL4 = "K2" // DEK, parent=K1
+
+	globalL1KeyID = "l1-global"
 )
 
 // EnsureHierarchyRequest describes which key is needed for a tenant/service.
@@ -51,7 +53,7 @@ func New(client kryptonclient.Client, log *slog.Logger) *Orchestrator {
 	return &Orchestrator{
 		client: client,
 		log:    log,
-		l1ID:   "l1-global",
+		l1ID:   globalL1KeyID,
 	}
 }
 
@@ -60,7 +62,7 @@ func NewWithOptions(client kryptonclient.Client, log *slog.Logger, skipL1Lookup 
 	return &Orchestrator{
 		client:       client,
 		log:          log,
-		l1ID:         "l1-global",
+		l1ID:         globalL1KeyID,
 		skipL1Lookup: skipL1Lookup,
 	}
 }
@@ -72,13 +74,13 @@ func (o *Orchestrator) EnsureHierarchy(
 	req EnsureHierarchyRequest,
 ) (*EnsureHierarchyResult, error) {
 	if req.TenantID == "" {
-		return nil, fmt.Errorf("tenantID is required")
+		return nil, errors.New("tenantID is required")
 	}
 	if req.Level < kryptonclient.LevelL2 || req.Level > kryptonclient.LevelL4 {
 		return nil, fmt.Errorf("level must be L2, L3 or L4 (got %d)", req.Level)
 	}
 	if req.Level >= kryptonclient.LevelL3 && req.ServiceID == "" {
-		return nil, fmt.Errorf("serviceID is required for L3/L4")
+		return nil, errors.New("serviceID is required for L3/L4")
 	}
 
 	// Resolve tenant name → UUID (real Krypton requires UUID tenant IDs).
@@ -200,9 +202,9 @@ func buildKeyName(serviceID string, level kryptonclient.Level) string {
 	case kryptonclient.LevelL2:
 		return "tenant-root"
 	case kryptonclient.LevelL3:
-		return fmt.Sprintf("%s-service-key", serviceID)
+		return serviceID + "-service-key"
 	case kryptonclient.LevelL4:
-		return fmt.Sprintf("%s-dek", serviceID)
+		return serviceID + "-dek"
 	default:
 		return fmt.Sprintf("level-%d", level)
 	}
@@ -213,9 +215,9 @@ func buildKeyName(serviceID string, level kryptonclient.Level) string {
 func buildKeyID(tenantID, serviceID string, level kryptonclient.Level) string {
 	switch level {
 	case kryptonclient.LevelL1:
-		return "l1-global"
+		return globalL1KeyID
 	case kryptonclient.LevelL2:
-		return fmt.Sprintf("%s-l2", tenantID)
+		return tenantID + "-l2"
 	case kryptonclient.LevelL3:
 		return fmt.Sprintf("%s-%s-l3", tenantID, serviceID)
 	case kryptonclient.LevelL4:

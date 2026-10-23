@@ -9,6 +9,8 @@ import (
 	"github.com/openkcm/cmk-krypton-bridge/internal/kryptonclient"
 )
 
+const healthStatusField = "status"
+
 // HealthHTTPServer provides /healthz and /readyz endpoints for Kubernetes probes.
 type HealthHTTPServer struct {
 	client kryptonclient.Client
@@ -28,17 +30,23 @@ func (h *HealthHTTPServer) Handler() http.Handler {
 
 func (h *HealthHTTPServer) liveness(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	h.writeJSON(w, r, map[string]string{healthStatusField: "ok"})
 }
 
 func (h *HealthHTTPServer) readiness(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := h.client.Health(r.Context()); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "error": err.Error()})
+		h.writeJSON(w, r, map[string]string{healthStatusField: "not ready", "error": err.Error()})
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	h.writeJSON(w, r, map[string]string{healthStatusField: "ready"})
+}
+
+func (h *HealthHTTPServer) writeJSON(w http.ResponseWriter, r *http.Request, body map[string]string) {
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		h.log.ErrorContext(r.Context(), "failed to write health response", slog.String("error", err.Error()))
+	}
 }
 
 // StartHealthServer starts the HTTP health server and returns when ctx is done.

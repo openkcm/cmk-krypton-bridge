@@ -7,13 +7,13 @@ import (
 	"net"
 	"regexp"
 
+	"github.com/openkcm/common-sdk/pkg/commoncfg"
+	"github.com/openkcm/common-sdk/pkg/commongrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 
-	"github.com/openkcm/common-sdk/pkg/commoncfg"
-	"github.com/openkcm/common-sdk/pkg/commongrpc"
 	adminpb "github.com/openkcm/cmk-krypton-bridge/internal/gen/krypton/admin"
 	kryptonpb "github.com/openkcm/cmk-krypton-bridge/internal/gen/krypton/admin/keys"
 )
@@ -28,7 +28,8 @@ type GRPCClient struct {
 
 // NewGRPCClient dials Krypton and returns a ready client.
 // Transport security is derived from cfg.SecretRef:
-//   insecure → plaintext, tls → system-CA TLS, mtls → mutual TLS.
+//
+//	insecure → plaintext, tls → system-CA TLS, mtls → mutual TLS.
 func NewGRPCClient(cfg commoncfg.GRPCClient) (*GRPCClient, error) {
 	var conn *grpc.ClientConn
 	var err error
@@ -63,7 +64,7 @@ func (c *GRPCClient) GetKey(ctx context.Context, id, tenantID string) (*Key, err
 		TenantId: tenantUUID,
 	})
 	if err == nil {
-		return protoToKey(resp.Key), nil
+		return protoToKey(resp.GetKey()), nil
 	}
 
 	// Krypton returns Internal with "failed to get key" or NotFound when key doesn't exist.
@@ -86,7 +87,7 @@ func (c *GRPCClient) GetKey(ctx context.Context, id, tenantID string) (*Key, err
 	if listErr != nil || len(listResp.GetKeys()) == 0 {
 		return nil, ErrKeyNotFound
 	}
-	return protoToKey(listResp.Keys[0]), nil
+	return protoToKey(listResp.GetKeys()[0]), nil
 }
 
 // EnsureKey announces and activates a key (create-if-not-exists).
@@ -111,21 +112,21 @@ func (c *GRPCClient) EnsureKey(ctx context.Context, req EnsureKeyRequest) (*Key,
 		return nil, fmt.Errorf("krypton AnnounceKey(%s): %w", name, err)
 	}
 
-	key := announceResp.Key
-	if key.LifeCycleState == "active" {
+	key := announceResp.GetKey()
+	if key.GetLifeCycleState() == "active" {
 		return protoToKey(key), nil
 	}
 
 	_, err = c.stub.ActivateKey(ctx, &kryptonpb.ActivateKeyRequest{
-		Id:       key.Id,
+		Id:       key.GetId(),
 		TenantId: req.TenantID,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("krypton ActivateKey(%s): %w", key.Id, err)
+		return nil, fmt.Errorf("krypton ActivateKey(%s): %w", key.GetId(), err)
 	}
 
 	// Re-fetch to get the updated lifecycle state
-	return c.GetKey(ctx, key.Id, req.TenantID)
+	return c.GetKey(ctx, key.GetId(), req.TenantID)
 }
 
 // ListKeysByTenant lists all keys for a tenant.
@@ -144,8 +145,8 @@ func (c *GRPCClient) ListKeysByTenant(ctx context.Context, tenantID string) ([]*
 		}
 		return nil, fmt.Errorf("krypton ListKeys(tenant=%s): %w", tenantID, err)
 	}
-	keys := make([]*Key, 0, len(resp.Keys))
-	for _, k := range resp.Keys {
+	keys := make([]*Key, 0, len(resp.GetKeys()))
+	for _, k := range resp.GetKeys() {
 		keys = append(keys, protoToKey(k))
 	}
 	return keys, nil
@@ -165,14 +166,14 @@ func protoToKey(k *kryptonpb.Key) *Key {
 		return nil
 	}
 	return &Key{
-		ID:       k.Id,
-		Name:     k.Name,
-		TenantID: k.TenantId,
-		ParentID: k.ParentId,
-		Kind:     k.Kind,
-		Level:    KindToLevel(k.Kind),
-		Status:   KeyStatus(k.LifeCycleState),
-		Metadata: k.Labels,
+		ID:       k.GetId(),
+		Name:     k.GetName(),
+		TenantID: k.GetTenantId(),
+		ParentID: k.GetParentId(),
+		Kind:     k.GetKind(),
+		Level:    KindToLevel(k.GetKind()),
+		Status:   KeyStatus(k.GetLifeCycleState()),
+		Metadata: k.GetLabels(),
 	}
 }
 
@@ -189,9 +190,9 @@ func (c *GRPCClient) EnsureTenant(ctx context.Context, tenantName string) (strin
 	if err != nil {
 		return "", fmt.Errorf("krypton ListTenants: %w", err)
 	}
-	for _, t := range listResp.Tenants {
-		if t.Name == tenantName {
-			return t.Id, nil
+	for _, t := range listResp.GetTenants() {
+		if t.GetName() == tenantName {
+			return t.GetId(), nil
 		}
 	}
 
@@ -206,16 +207,16 @@ func (c *GRPCClient) EnsureTenant(ctx context.Context, tenantName string) (strin
 			if lerr != nil {
 				return "", fmt.Errorf("krypton ListTenants after AlreadyExists: %w", lerr)
 			}
-			for _, t := range listResp.Tenants {
-				if t.Name == tenantName {
-					return t.Id, nil
+			for _, t := range listResp.GetTenants() {
+				if t.GetName() == tenantName {
+					return t.GetId(), nil
 				}
 			}
 			return "", fmt.Errorf("krypton CreateTenant(%s): AlreadyExists but tenant not found in list", tenantName)
 		}
 		return "", fmt.Errorf("krypton CreateTenant(%s): %w", tenantName, err)
 	}
-	return createResp.Tenant.Id, nil
+	return createResp.GetTenant().GetId(), nil
 }
 
 var _ Client = (*GRPCClient)(nil)
@@ -252,10 +253,10 @@ func (p *permissiveTLS) ClientHandshake(ctx context.Context, authority string, r
 func (p *permissiveTLS) ServerHandshake(conn net.Conn) (net.Conn, credentials.AuthInfo, error) {
 	return p.base.ServerHandshake(conn)
 }
-func (p *permissiveTLS) Info() credentials.ProtocolInfo   { return p.base.Info() }
+func (p *permissiveTLS) Info() credentials.ProtocolInfo { return p.base.Info() }
 func (p *permissiveTLS) Clone() credentials.TransportCredentials {
 	return &permissiveTLS{base: p.base.Clone()}
 }
 func (p *permissiveTLS) OverrideServerName(name string) error {
-	return p.base.OverrideServerName(name)
+	return p.base.OverrideServerName(name) //nolint:staticcheck // Required by TransportCredentials; forwarding preserves override behavior.
 }

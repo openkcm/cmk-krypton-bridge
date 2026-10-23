@@ -36,6 +36,5 @@ go.work
 bin/
 /proxy
 /orbital-demo
-internal/gen/kms/
 *.out
 *.test

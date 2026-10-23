@@ -62,13 +62,13 @@ func KindToLevel(kind string) Level {
 }
 
 // ErrKeyNotFound is returned when a key does not exist.
-var ErrKeyNotFound = errKeyNotFound{}
+var ErrKeyNotFound = keyNotFoundError{}
 
-type errKeyNotFound struct{}
+type keyNotFoundError struct{}
 
-func (e errKeyNotFound) Error() string { return "key not found" }
-func (e errKeyNotFound) Is(target error) bool {
-	_, ok := target.(errKeyNotFound)
+func (e keyNotFoundError) Error() string { return "key not found" }
+func (e keyNotFoundError) Is(target error) bool {
+	_, ok := target.(keyNotFoundError)
 	return ok
 }
 

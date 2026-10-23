@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/openkcm/orbital"
+	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/openkcm/api-sdk/proto/kms/api/cmk/eventprocessor/task/v1"
 )

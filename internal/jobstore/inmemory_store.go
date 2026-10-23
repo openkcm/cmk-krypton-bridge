@@ -2,6 +2,7 @@ package jobstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -40,7 +41,7 @@ func (s *InMemoryJobStore) RecordManagedKeys(ctx context.Context, jobID string, 
 	}
 	for _, key := range keys {
 		if key == nil || key.ProxyID == "" {
-			return fmt.Errorf("record managed key: missing proxy ID")
+			return errors.New("record managed key: missing proxy ID")
 		}
 		keyCopy := *key
 		s.managedKeys[key.ProxyID] = &keyCopy
@@ -91,7 +92,7 @@ func (s *InMemoryJobStore) ClaimNext(ctx context.Context) (*Job, error) {
 			return &cp, nil
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // A nil job signals an empty queue, as documented by JobStore.
 }
 
 func (s *InMemoryJobStore) Heartbeat(ctx context.Context, id string) error {
@@ -144,10 +145,7 @@ func (s *InMemoryJobStore) MarkRetry(ctx context.Context, id, errMsg string) err
 	if s.zeroRetryDelay {
 		retryAfter = time.Now()
 	} else {
-		prev := j.Attempts - 1
-		if prev < 0 {
-			prev = 0
-		}
+		prev := max(j.Attempts-1, 0)
 		backoff := retryBase * (1 << prev)
 		jitter := time.Duration(rand.Int63n(int64(retryBase)))
 		retryAfter = time.Now().Add(backoff + jitter)
@@ -199,11 +197,11 @@ func (s *InMemoryJobStore) All() []*Job {
 }
 
 // SetMaxAttempts overrides the MaxAttempts field for a job (test helper).
-func (s *InMemoryJobStore) SetMaxAttempts(id string, max int) {
+func (s *InMemoryJobStore) SetMaxAttempts(id string, maxAttempts int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if j, ok := s.jobs[id]; ok {
-		j.MaxAttempts = max
+		j.MaxAttempts = maxAttempts
 	}
 }
 

@@ -34,15 +34,15 @@ func TestEnsureKeyHierarchy_ReturnsJobID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.JobId == "" {
+	if resp.GetJobId() == "" {
 		t.Fatal("expected non-empty job_id")
 	}
-	if resp.Status != rpcv1.JobStatus_JOB_STATUS_ACCEPTED {
-		t.Errorf("expected ACCEPTED, got %v", resp.Status)
+	if resp.GetStatus() != rpcv1.JobStatus_JOB_STATUS_ACCEPTED {
+		t.Errorf("expected ACCEPTED, got %v", resp.GetStatus())
 	}
 
 	// Verify job is in the store.
-	job, err := store.GetJob(context.Background(), resp.JobId)
+	job, err := store.GetJob(context.Background(), resp.GetJobId())
 	if err != nil {
 		t.Fatalf("job not found in store: %v", err)
 	}
@@ -80,8 +80,8 @@ func TestGetJobStatus_Pending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Status != rpcv1.JobStatus_JOB_STATUS_ACCEPTED {
-		t.Errorf("expected ACCEPTED for pending job, got %v", resp.Status)
+	if resp.GetStatus() != rpcv1.JobStatus_JOB_STATUS_ACCEPTED {
+		t.Errorf("expected ACCEPTED for pending job, got %v", resp.GetStatus())
 	}
 }
 
@@ -100,21 +100,21 @@ func TestGetJobStatus_Done_WithResultKey(t *testing.T) {
 		TenantID: "tenant-a",
 		Level:    kryptonclient.LevelL2,
 	})
-	store.ClaimNext(context.Background())             //nolint
+	store.ClaimNext(context.Background())            //nolint
 	store.MarkDone(context.Background(), id, key.ID) //nolint
 
 	resp, err := h.GetJobStatus(context.Background(), &rpcv1.GetJobStatusRequest{JobId: id})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Status != rpcv1.JobStatus_JOB_STATUS_DONE {
-		t.Errorf("expected DONE, got %v", resp.Status)
+	if resp.GetStatus() != rpcv1.JobStatus_JOB_STATUS_DONE {
+		t.Errorf("expected DONE, got %v", resp.GetStatus())
 	}
-	if resp.ResultKey == nil {
+	if resp.GetResultKey() == nil {
 		t.Fatal("expected non-nil result_key for done job")
 	}
-	if resp.ResultKey.Id != key.ID {
-		t.Errorf("expected key ID %q, got %q", key.ID, resp.ResultKey.Id)
+	if resp.GetResultKey().GetId() != key.ID {
+		t.Errorf("expected key ID %q, got %q", key.ID, resp.GetResultKey().GetId())
 	}
 }
 
@@ -125,18 +125,18 @@ func TestGetJobStatus_Failed(t *testing.T) {
 		TenantID: "tenant-a",
 		Level:    kryptonclient.LevelL2,
 	})
-	store.ClaimNext(context.Background())                              //nolint
+	store.ClaimNext(context.Background())                             //nolint
 	store.MarkFailed(context.Background(), id, "krypton unreachable") //nolint
 
 	resp, err := h.GetJobStatus(context.Background(), &rpcv1.GetJobStatusRequest{JobId: id})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Status != rpcv1.JobStatus_JOB_STATUS_FAILED {
-		t.Errorf("expected FAILED, got %v", resp.Status)
+	if resp.GetStatus() != rpcv1.JobStatus_JOB_STATUS_FAILED {
+		t.Errorf("expected FAILED, got %v", resp.GetStatus())
 	}
-	if resp.Error != "krypton unreachable" {
-		t.Errorf("expected error message, got %q", resp.Error)
+	if resp.GetError() != "krypton unreachable" {
+		t.Errorf("expected error message, got %q", resp.GetError())
 	}
 }
 

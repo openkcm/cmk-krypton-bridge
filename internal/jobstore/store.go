@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -96,8 +97,8 @@ func (s *PostgresJobStore) ClaimNext(ctx context.Context) (*Job, error) {
 		          retry_after, created_at, updated_at`)
 
 	job, err := scanJob(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil //nolint:nilnil // A nil job signals an empty queue, as documented by JobStore.
 	}
 	if err != nil {
 		return nil, fmt.Errorf("claim next job: %w", err)
@@ -116,7 +117,7 @@ func (s *PostgresJobStore) MarkDone(ctx context.Context, id, resultKeyID string)
 func (s *PostgresJobStore) RecordManagedKeys(ctx context.Context, jobID string, keys []*kryptonclient.Key) error {
 	for _, key := range keys {
 		if key == nil || key.ProxyID == "" {
-			return fmt.Errorf("record managed key: missing proxy ID")
+			return errors.New("record managed key: missing proxy ID")
 		}
 		metadataJSON, err := json.Marshal(key.Metadata)
 		if err != nil {
@@ -180,10 +181,7 @@ func (s *PostgresJobStore) MarkRetry(ctx context.Context, id, errMsg string) err
 	}
 
 	// Backoff is based on the attempt count before this failure (newAttempts-1).
-	prev := newAttempts - 1
-	if prev < 0 {
-		prev = 0
-	}
+	prev := max(newAttempts-1, 0)
 	backoff := retryBase * (1 << prev)
 	jitter := time.Duration(rand.Int63n(int64(retryBase)))
 	nextRetry := time.Now().Add(backoff + jitter)
@@ -207,7 +205,7 @@ func (s *PostgresJobStore) GetJob(ctx context.Context, id string) (*Job, error) 
 		WHERE id = $1`, id)
 
 	job, err := scanJob(row)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("job %q not found", id)
 	}
 	return job, err

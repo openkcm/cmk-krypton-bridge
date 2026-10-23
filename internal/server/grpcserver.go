@@ -19,6 +19,7 @@ import (
 // Handler implements rpcv1.CmkKryptonBridgeServiceServer.
 type Handler struct {
 	rpcv1.UnimplementedCmkKryptonBridgeServiceServer
+
 	orch   *orchestrator.Orchestrator
 	client kryptonclient.Client
 	store  jobstore.JobStore
@@ -36,22 +37,22 @@ func (h *Handler) EnsureKeyHierarchy(
 	ctx context.Context,
 	req *rpcv1.EnsureKeyHierarchyRequest,
 ) (*rpcv1.EnsureKeyHierarchyResponse, error) {
-	if req.TenantId == "" {
+	if req.GetTenantId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
 	jobID, err := h.store.Enqueue(ctx, orchestrator.EnsureHierarchyRequest{
-		TenantID:  req.TenantId,
-		ServiceID: req.ServiceId,
-		Level:     kryptonclient.Level(req.TargetLevel),
-		Metadata:  req.Metadata,
+		TenantID:  req.GetTenantId(),
+		ServiceID: req.GetServiceId(),
+		Level:     kryptonclient.Level(req.GetTargetLevel()),
+		Metadata:  req.GetMetadata(),
 	})
 	if err != nil {
-		h.log.ErrorContext(ctx, "enqueue job failed", slog.String("error", err.Error()), slog.String("tenantID", req.TenantId))
+		h.log.ErrorContext(ctx, "enqueue job failed", slog.String("error", err.Error()), slog.String("tenantID", req.GetTenantId()))
 		return nil, status.Errorf(codes.Internal, "enqueue job: %v", err)
 	}
 
-	h.log.InfoContext(ctx, "job enqueued", slog.String("jobID", jobID), slog.String("tenantID", req.TenantId))
+	h.log.InfoContext(ctx, "job enqueued", slog.String("jobID", jobID), slog.String("tenantID", req.GetTenantId()))
 	return &rpcv1.EnsureKeyHierarchyResponse{
 		JobId:  jobID,
 		Status: rpcv1.JobStatus_JOB_STATUS_ACCEPTED,
@@ -63,13 +64,13 @@ func (h *Handler) GetJobStatus(
 	ctx context.Context,
 	req *rpcv1.GetJobStatusRequest,
 ) (*rpcv1.GetJobStatusResponse, error) {
-	if req.JobId == "" {
+	if req.GetJobId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "job_id is required")
 	}
 
-	job, err := h.store.GetJob(ctx, req.JobId)
+	job, err := h.store.GetJob(ctx, req.GetJobId())
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "job %q not found", req.JobId)
+		return nil, status.Errorf(codes.NotFound, "job %q not found", req.GetJobId())
 	}
 
 	resp := &rpcv1.GetJobStatusResponse{
@@ -93,13 +94,13 @@ func (h *Handler) GetKey(
 	ctx context.Context,
 	req *rpcv1.GetKeyRequest,
 ) (*rpcv1.GetKeyResponse, error) {
-	if req.KeyId == "" {
+	if req.GetKeyId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "key_id is required")
 	}
-	k, err := h.client.GetKey(ctx, req.KeyId, req.TenantId)
+	k, err := h.client.GetKey(ctx, req.GetKeyId(), req.GetTenantId())
 	if err != nil {
 		if errors.Is(err, kryptonclient.ErrKeyNotFound) {
-			return nil, status.Errorf(codes.NotFound, "key %q not found", req.KeyId)
+			return nil, status.Errorf(codes.NotFound, "key %q not found", req.GetKeyId())
 		}
 		return nil, status.Errorf(codes.Internal, "get key: %v", err)
 	}
@@ -110,10 +111,10 @@ func (h *Handler) ListKeys(
 	ctx context.Context,
 	req *rpcv1.ListKeysRequest,
 ) (*rpcv1.ListKeysResponse, error) {
-	if req.TenantId == "" {
+	if req.GetTenantId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
-	keys, err := h.client.ListKeysByTenant(ctx, req.TenantId)
+	keys, err := h.client.ListKeysByTenant(ctx, req.GetTenantId())
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list keys: %v", err)
 	}
@@ -195,7 +196,7 @@ type GRPCServer struct {
 
 // NewGRPCServer creates and registers the gRPC server.
 func NewGRPCServer(handler *Handler, address string, log *slog.Logger) (*GRPCServer, error) {
-	lis, err := net.Listen("tcp", address)
+	lis, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", address)
 	if err != nil {
 		return nil, err
 	}

@@ -207,9 +207,7 @@ func (p *Pool) Start(ctx context.Context) {
 	}
 
 	// Stuck-job recovery runs every stuckTimeout/2.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		ticker := time.NewTicker(p.stuckTimeout / 2)
 		defer ticker.Stop()
 		for {
@@ -225,7 +223,7 @@ func (p *Pool) Start(ctx context.Context) {
 				}
 			}
 		}
-	}()
+	})
 
 	wg.Wait()
 }

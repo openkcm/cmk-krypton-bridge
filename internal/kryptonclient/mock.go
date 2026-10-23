@@ -3,6 +3,7 @@ package kryptonclient
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
@@ -10,6 +11,8 @@ import (
 
 // MockClient is an in-memory implementation of Client.
 // Used for the POC — no real Krypton required.
+const globalL1KeyID = "l1-global"
+
 type MockClient struct {
 	mu   sync.RWMutex
 	keys map[string]*Key // keyID → Key
@@ -18,9 +21,9 @@ type MockClient struct {
 // NewMockClient creates a MockClient pre-populated with the global L1 key.
 func NewMockClient() *MockClient {
 	m := &MockClient{keys: make(map[string]*Key)}
-	m.keys["l1-global"] = &Key{
-		ID:       "l1-global",
-		Name:     "l1-global",
+	m.keys[globalL1KeyID] = &Key{
+		ID:       globalL1KeyID,
+		Name:     globalL1KeyID,
 		Level:    LevelL1,
 		TenantID: "",
 		Kind:     "root",
@@ -107,8 +110,8 @@ func (m *MockClient) EnsureTenant(ctx context.Context, tenantName string) (strin
 func (m *MockClient) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	l1 := m.keys["l1-global"]
-	m.keys = map[string]*Key{"l1-global": l1}
+	l1 := m.keys[globalL1KeyID]
+	m.keys = map[string]*Key{globalL1KeyID: l1}
 }
 
 // NewKeyID generates a non-deterministic ID (for testing only).
@@ -122,9 +125,7 @@ func copyKey(k *Key) *Key {
 	}
 	c := *k
 	c.Metadata = make(map[string]string, len(k.Metadata))
-	for kk, v := range k.Metadata {
-		c.Metadata[kk] = v
-	}
+	maps.Copy(c.Metadata, k.Metadata)
 	return &c
 }
 

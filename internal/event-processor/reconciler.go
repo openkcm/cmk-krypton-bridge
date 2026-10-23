@@ -7,10 +7,10 @@ import (
 	"log/slog"
 
 	"github.com/openkcm/orbital"
-	orbitalamqp "github.com/openkcm/orbital/client/amqp"
 	"github.com/openkcm/orbital/codec"
 
 	goAmqp "github.com/Azure/go-amqp"
+	orbitalamqp "github.com/openkcm/orbital/client/amqp"
 
 	"github.com/openkcm/cmk-krypton-bridge/pkg/config"
 )
@@ -67,7 +67,7 @@ func (r *KryptonReconciler) Start(ctx context.Context, cfg config.OrbitalConfig)
 	if err != nil {
 		return fmt.Errorf("create AMQP client: %w", err)
 	}
-	defer amqpClient.Close(ctx) //nolint:errcheck
+	defer amqpClient.Close(ctx)
 
 	op, err := orbital.NewOperator(orbital.TargetOperator{Client: amqpClient})
 	if err != nil {
@@ -83,7 +83,11 @@ func (r *KryptonReconciler) Start(ctx context.Context, cfg config.OrbitalConfig)
 		slog.String("source", cfg.AMQP.Source),
 		slog.String("target", cfg.AMQP.Target))
 
-	go op.ListenAndRespond(ctx)
+	go func() {
+		if err := op.ListenAndRespond(ctx); err != nil && ctx.Err() == nil {
+			r.lg.ErrorContext(ctx, "orbital: ListenAndRespond failed", slog.String("error", err.Error()))
+		}
+	}()
 
 	<-ctx.Done()
 	r.lg.InfoContext(ctx, "orbital: KryptonReconciler stopped")

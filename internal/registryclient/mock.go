@@ -8,10 +8,10 @@ import (
 // MockClient is an in-memory implementation of Client for testing and mock mode.
 type MockClient struct {
 	mu       sync.RWMutex
-	tenants  map[string]string            // tenantID → tenantName
-	systems  map[string]string            // serviceID → l2KeyID
-	mappings map[string]string            // serviceID → tenantID
-	Calls    []EnsureSystemRequest        // recorded calls, readable in tests
+	tenants  map[string]string     // tenantID → tenantName
+	systems  map[string]string     // serviceID → l2KeyID
+	mappings map[string]string     // serviceID → tenantID
+	Calls    []EnsureSystemRequest // recorded calls, readable in tests
 }
 
 // NewMockClient creates a ready MockClient.

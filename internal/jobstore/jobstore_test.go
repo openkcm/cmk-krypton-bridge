@@ -112,7 +112,9 @@ func TestInMemory_MarkRetry_BackoffIncreases(t *testing.T) {
 
 	// Second retry: backoff should be at least 2x base (5s*2=10s).
 	// To re-claim we need to reset RetryAfter.
-	store.ClaimNext(context.Background()) // won't claim — RetryAfter in future, that's fine
+	if job, err := store.ClaimNext(context.Background()); err != nil || job != nil {
+		t.Fatalf("ClaimNext() = (%v, %v), want (nil, nil) while RetryAfter is in the future", job, err)
+	}
 
 	// Simulate second failure without reclaiming (call MarkRetry again directly).
 	before2 := time.Now()
@@ -194,9 +196,7 @@ func TestInMemory_ConcurrentClaim(t *testing.T) {
 	claimed := sync.Map{}
 	var wg sync.WaitGroup
 	for range numWorkers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				job, err := store.ClaimNext(context.Background())
 				if err != nil {
@@ -210,7 +210,7 @@ func TestInMemory_ConcurrentClaim(t *testing.T) {
 					t.Errorf("double-claim: job %q claimed by two goroutines", job.ID)
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

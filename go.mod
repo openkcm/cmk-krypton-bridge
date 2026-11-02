@@ -12,7 +12,7 @@ require (
 	github.com/openkcm/orbital v0.6.2
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/spf13/cobra v1.10.2
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 )

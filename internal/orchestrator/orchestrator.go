@@ -10,15 +10,15 @@ import (
 )
 
 // Level-to-Krypton-kind mapping.
-// The running Krypton instance uses K0/K1/K2 as configured in its hierarchy:
+// Krypton manages L2-L4; L1 is the external AWS KMS root key in CMK.
 //
-//	K0 = root key (no parent) → our L2 (tenant root)
-//	K1 = KEK (parent=K0)     → our L3 (service key)
-//	K2 = DEK (parent=K1)     → our L4
+//	L2 = tenant root (no parent in Krypton)
+//	L3 = service key / KEK (parent=L2)
+//	L4 = DEK (parent=L3)
 const (
-	KindL2 = "K0" // tenant root (root kind, no parent)
-	KindL3 = "K1" // service key (KEK, parent=K0)
-	KindL4 = "K2" // DEK, parent=K1
+	KindL2 = "L2" // tenant root (root kind, no parent)
+	KindL3 = "L3" // service key (KEK, parent=L2)
+	KindL4 = "L4" // DEK, parent=L3
 
 	globalL1KeyID = "l1-global"
 )

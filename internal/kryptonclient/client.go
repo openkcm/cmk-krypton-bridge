@@ -39,22 +39,20 @@ type Key struct {
 }
 
 // KindToLevel maps a Krypton kind string to a proxy Level.
-// The running Krypton instance uses K0/K1/K2 for its configured hierarchy:
 //
-//	K0 = root (no parent)    → L2 in our proxy model (tenant root)
-//	K1 = KEK (parent=K0)    → L3 in our proxy model (service key)
-//	K2 = DEK (parent=K1)    → L4 in our proxy model (DEK)
-//
-// Also handles legacy kind names for backward compatibility with mock usage.
+//	L2 = tenant root (no parent in Krypton)
+//	L3 = service key / KEK (parent=L2)
+//	L4 = DEK (parent=L3)
+//	L1 = hardware root (external AWS KMS, never sent to Krypton)
 func KindToLevel(kind string) Level {
 	switch kind {
-	case "K0", "tenant-root":
+	case "L2", "tenant-root":
 		return LevelL2 // tenant root
-	case "K1", "service-key":
+	case "L3", "service-key":
 		return LevelL3 // service key
-	case "K2", "dek":
+	case "L4", "dek":
 		return LevelL4 // DEK
-	case "root":
+	case "L1", "root":
 		return LevelL1 // hardware root (external)
 	default:
 		return 0

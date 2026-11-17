@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/openkcm/orbital"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	taskv1 "github.com/openkcm/api-sdk/proto/kms/api/cmk/eventprocessor/task/v1"
@@ -116,6 +117,10 @@ func unmarshalSystemActionProto(
 		setErrorStateAndFail(ctx, resp, err, "invalid task data")
 		return nil
 	}
+	lg.InfoContext(ctx, "orbital: raw message received",
+		slog.String("taskID", req.TaskID.String()),
+		slog.String("taskType", req.TaskType),
+		slog.String("payload", protojson.Format(&data)))
 	sa := data.GetSystemAction()
 	if sa == nil {
 		setErrorStateAndFail(ctx, resp,
